@@ -19,6 +19,8 @@ from pipecat.services.whisper.stt import WhisperSTTService
 from pipecat.utils.time import time_now_iso8601
 from pipecat.utils.types import assert_given
 
+from stt_common import TurnAudio, hotword_fixer
+
 # About 100 tokens of recent conversation. Whisper's prompt window is 223 tokens, shared with hotwords.
 CONTEXT_CHARS = 400
 # faster-whisper's own threshold for a failed decode; segments still below it after the
@@ -46,11 +48,16 @@ SUBTITLE_CREDITS = re.compile(
 class InterviewWhisperSTT(WhisperSTTService):
     """WhisperSTTService that carries conversation context across segments and filters hallucinations."""
 
-    def __init__(self, *, min_avg_logprob: float = DEFAULT_MIN_AVG_LOGPROB, **kwargs):
+    def __init__(self, *, min_avg_logprob: float = DEFAULT_MIN_AVG_LOGPROB, hotword_list: list[str] | None = None, **kwargs):
         super().__init__(**kwargs)
         self._min_avg_logprob = min_avg_logprob
         self._context = ""
         self._hotword_seq = WORD.findall((assert_given(self._settings.hotwords) or "").lower())
+        self._fix = hotword_fixer(hotword_list or [])
+        self.turn_audio = TurnAudio()
+
+    # Whisper is too slow to re-transcribe whole answers during the interview; see parakeet_stt.py.
+    transcribe_turn = None
 
     def add_context(self, text: str):
         """Appends what was just said, by either side, to the prompt for the next segment."""
@@ -105,6 +112,7 @@ class InterviewWhisperSTT(WhisperSTTService):
         rms = float(np.sqrt(np.mean(samples**2))) if samples.size else 0.0
         if rms < MIN_RMS:
             logger.info(f"Skipped near-silent Whisper segment (RMS {rms:.0f})")
+            self.turn_audio.add(audio, None)
             return
 
         await self.start_processing_metrics()
@@ -134,10 +142,12 @@ class InterviewWhisperSTT(WhisperSTTService):
                 logger.info(f"Dropped Whisper segment ({reason}): [{segment.text.strip()}]")
             else:
                 kept.append(segment.text.strip())
-        text = " ".join(kept)
+        text = self._fix(" ".join(kept))
 
         await self.stop_processing_metrics()
 
+        # Recorded before the transcription goes out, so the answer it ends up in can find its audio.
+        self.turn_audio.add(audio, text)
         if text:
             self.add_context(text)
             await self._handle_transcription(text, True, language)

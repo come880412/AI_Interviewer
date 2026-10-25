@@ -49,8 +49,22 @@ def download_avatar_files() -> bool:
     return True
 
 
+def download_parakeet_model() -> bool:
+    step("Parakeet TDT v3 speech-to-text model (STT_BACKEND=parakeet and compare_stt.py, about 2.5 GB)")
+    try:
+        from stt_common import download_parakeet
+
+        print(f"downloaded to: {download_parakeet()}")
+        return True
+    except Exception as e:
+        print(f"FAIL: {e}")
+        return False
+
+
 if sys.argv[1:] == ["avatar"]:
     sys.exit(0 if download_avatar_files() else 1)
+if sys.argv[1:] == ["parakeet"]:
+    sys.exit(0 if download_parakeet_model() else 1)
 
 
 step("1. Whisper STT model")
@@ -110,6 +124,9 @@ else:
 
 if not download_avatar_files():
     print("The voice interview still works; only the avatar on the video page is missing.")
+
+if os.getenv("STT_BACKEND", "whisper").lower() == "parakeet" and not download_parakeet_model():
+    ok = False
 
 print("\nAll set. Start the interviewer with: python bot.py" if ok else "\nSome checks failed, see README troubleshooting.")
 sys.exit(0 if ok else 1)

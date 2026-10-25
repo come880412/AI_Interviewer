@@ -380,6 +380,11 @@ def register(app: FastAPI):
             saved = read_transcript(path)
             body = "\n\n".join(saved.lines)
             return _report_page(f"逐字稿 · {title}", markdown.markdown(body, extensions=["fenced_code"]))
+        if kind == "stt":
+            compare = sibling(path, "stt-compare")
+            if not compare.exists():
+                raise HTTPException(404, "這場還沒有語音辨識比較，請先執行 compare_stt.py。")
+            return _report_page(f"語音辨識比較 · {title}", _render_markdown(compare.read_text(encoding="utf-8")))
         report_path = sibling(path, "feedback")
         if not report_path.exists():
             raise HTTPException(404, "這場還沒有回饋報告。")

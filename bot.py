@@ -5,6 +5,7 @@ Run:  python bot.py [--interview NAME] [--resume TRANSCRIPT]    then open http:/
 
 import argparse
 import asyncio
+import json
 import os
 import re
 import time
@@ -54,6 +55,7 @@ from history import practice_history
 from interview_config import InterviewConfig, interview_name, pick_interview, validate
 from session_picker import ActiveSession, Selection
 from transcript import Transcript, read_transcript
+from stt_common import save_wav
 from whisper_stt import DEFAULT_MIN_AVG_LOGPROB, InterviewWhisperSTT
 
 load_dotenv(override=True)
@@ -70,6 +72,11 @@ WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "float16")
 # Whisper segments decoded below this average log-probability are dropped as likely hallucinations.
 # Lower it (e.g. -1.3) if real words go missing; dropped segments are logged.
 WHISPER_MIN_AVG_LOGPROB = float(os.getenv("WHISPER_MIN_AVG_LOGPROB", str(DEFAULT_MIN_AVG_LOGPROB)))
+# "whisper" (faster-whisper, takes hotwords as a prompt) or "parakeet" (NVIDIA Parakeet TDT v3: faster, and
+# re-transcribes each whole answer for the transcript). Compare them on your own voice with compare_stt.py.
+STT_BACKEND = os.getenv("STT_BACKEND", "whisper").lower()
+# Save each answer's audio next to the transcript, for compare_stt.py. Off by default: it is your voice.
+SAVE_CANDIDATE_AUDIO = os.getenv("SAVE_CANDIDATE_AUDIO", "false").lower() == "true"
 AUTO_FEEDBACK = os.getenv("AUTO_FEEDBACK", "true").lower() == "true"
 # Silence before Smart Turn even checks whether the candidate is done. Pipecat's 0.2s default ends the
 # turn at every pause between sentences; raise it if the interviewer still cuts in, lower it for snappier replies.
@@ -261,16 +268,24 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     clock.on_stopped = on_bot_stopped
     end_filter = EndTokenFilter(interviewer_said_goodbye)
 
-    stt = InterviewWhisperSTT(
-        device=WHISPER_DEVICE,
-        compute_type=WHISPER_COMPUTE_TYPE,
-        min_avg_logprob=WHISPER_MIN_AVG_LOGPROB,
-        settings=InterviewWhisperSTT.Settings(
-            model=WHISPER_MODEL,
-            language=Language.EN,
-            hotwords=" ".join(cfg.stt_hotwords) or None,
-        ),
-    )
+    if STT_BACKEND == "parakeet":
+        # Imported here so the Whisper-only setup does not need onnx-asr.
+        from parakeet_stt import ParakeetSTTService
+
+        stt = ParakeetSTTService(hotwords=cfg.stt_hotwords, device=WHISPER_DEVICE)
+    else:
+        stt = InterviewWhisperSTT(
+            device=WHISPER_DEVICE,
+            compute_type=WHISPER_COMPUTE_TYPE,
+            min_avg_logprob=WHISPER_MIN_AVG_LOGPROB,
+            hotword_list=cfg.stt_hotwords,
+            settings=InterviewWhisperSTT.Settings(
+                model=WHISPER_MODEL,
+                language=Language.EN,
+                hotwords=" ".join(cfg.stt_hotwords) or None,
+            ),
+        )
+    audio_dir = transcript.path.with_name(transcript.path.name.replace("-transcript.md", "-audio"))
 
     if cfg.voice_clone:
         # Imported here because it pulls in torch, which slows startup when the clone is not used.
@@ -460,11 +475,31 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     @user_aggregator.event_handler("on_user_turn_stopped")
     async def on_user_turn_stopped(aggregator, strategy, message: UserTurnStoppedMessage):
         nonlocal candidate_start, candidate_pause
-        if candidate_start is not None:
-            transcript.add("Candidate", message.content, candidate_start, now() - candidate_start, candidate_pause)
-        else:
-            transcript.add("Candidate", message.content)
+        start, pause_before = candidate_start, candidate_pause
         candidate_start = candidate_pause = None
+        stopped_at = now() if session_started is not None else None
+        live = message.content or ""
+        text = live
+        pcm = stt.turn_audio.take(live)
+        # Parakeet is fast enough to hear the whole answer again in one pass, with all its context; the
+        # interviewer already has the live text, so this only improves the transcript and the report.
+        if pcm and stt.transcribe_turn:
+            try:
+                whole = await stt.transcribe_turn(pcm)
+                if whole:
+                    text = whole
+            except Exception as e:
+                logger.warning(f"Whole-answer transcription failed, keeping the live text: {e}")
+        if pcm and SAVE_CANDIDATE_AUDIO:
+            n = sum(1 for t in transcript.turns if t.speaker == "Candidate") + 1
+            wav = audio_dir / f"answer-{n:02d}.wav"
+            save_wav(wav, pcm, stt.sample_rate or 16000)
+            with (audio_dir / "answers.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps({"file": wav.name, "live": live, "transcript": text}, ensure_ascii=False) + "\n")
+        if start is not None and stopped_at is not None:
+            transcript.add("Candidate", text, start, stopped_at - start, pause_before)
+        else:
+            transcript.add("Candidate", text)
 
     @assistant_aggregator.event_handler("on_assistant_turn_started")
     async def on_assistant_turn_started(aggregator):

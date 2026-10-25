@@ -7,7 +7,7 @@
    ⇅ WebRTC                  http://localhost:7860/interview  面試頁：虛擬面試官、即時字幕
 bot.py (Pipecat 1.12.0)
    ├─ Silero VAD + Smart Turn v3   本機，判斷你講完了沒、處理打斷
-   ├─ faster-whisper large-v3      本機 GPU，語音轉文字
+   ├─ Whisper large-v3 或 Parakeet 本機 GPU，語音轉文字
    ├─ Claude Opus 5.5               面試官大腦，預設透過 Claude Code CLI（不需要 API key）
    ├─ Kokoro 或 Pocket TTS          文字轉語音：Kokoro 內建聲音（GPU），或 Pocket TTS 複製聲音（CPU）
    └─ transcripts/                  逐字稿、回饋報告、分數
@@ -160,7 +160,22 @@ mv interviews/acme/round1 interviews/acme/tech
 
 **面試官搶話：** `.env` 的 `CANDIDATE_PAUSE_SECS`（預設 0.8）是你停頓多久之後才開始判斷你講完了沒。還是會被打斷就調高，嫌回應慢就調低。
 
-**語音辨識準確度：** 預設用 Whisper `large-v3` 完整版，聽有口音的英文比 turbo 版準，但比較吃 VRAM（約 3–4 GB），每段也會慢一些。嫌慢可以在 `.env` 把 `WHISPER_MODEL` 改回 `deepdml/faster-whisper-large-v3-turbo-ct2`。`whisper_stt.py` 會把面試官剛問的問題和你前面講的話當成提示；信心太低、在念 hotwords 清單、或照抄提示的片段會被丟掉，終端機會印出 `Dropped Whisper segment`。如果真的講過的話被丟掉，把 `.env` 的 `WHISPER_MIN_AVG_LOGPROB` 調低（例如 `-1.3`）。
+**語音辨識模型：** `.env` 的 `STT_BACKEND` 可以選兩種，都在本機 GPU 上跑：
+
+| | `whisper`（預設） | `parakeet` |
+|---|---|---|
+| 模型 | Whisper large-v3（faster-whisper） | NVIDIA Parakeet TDT 0.6B v3（onnx-asr） |
+| 速度 | 一段約 0.5 秒 | 一段約 0.07 秒 |
+| 專有名詞 | 可以用 `stt_hotwords` 提示 | 不支援提示，辨識後再依 `stt_hotwords` 修正拼寫（例如 tensor RT → TensorRT） |
+| 逐字稿 | 每段停頓分開辨識 | 每段回答結束後，再把整段一次重新辨識，前後文完整 |
+
+Parakeet 在 Open ASR Leaderboard 上比 Whisper large-v3 準，但排行榜測的大多是母語者的英文，帶口音時哪個比較準要用你自己的聲音實測：
+
+1. `.env` 設 `SAVE_CANDIDATE_AUDIO=true`，正常面試一場。每段回答的錄音會存在逐字稿旁的 `*-audio/` 資料夾（只在本機，不會上 git）。
+2. 執行 `python compare_stt.py transcripts/<公司>/<關卡>/<時間>-transcript.md`，會把每段回答分別交給 Whisper 和 Parakeet，產生 `*-stt-compare.md`，並排列出兩個模型和面試中即時辨識的結果。也可以在網址列打開 `/report?interview=<公司>/<關卡>&file=<時間>-transcript.md&kind=stt` 看。
+3. 選比較貼近你實際說的話的那個，設成 `STT_BACKEND`。第一次用 Parakeet 前先執行 `python download_models.py parakeet`（約 2.5 GB）。
+
+Whisper 的細節：`whisper_stt.py` 會把面試官剛問的問題和你前面講的話當成提示；信心太低、在念 hotwords 清單、或照抄提示的片段會被丟掉，終端機會印出 `Dropped Whisper segment`。如果真的講過的話被丟掉，把 `.env` 的 `WHISPER_MIN_AVG_LOGPROB` 調低（例如 `-1.3`）。嫌慢可以把 `WHISPER_MODEL` 改成 `deepdml/faster-whisper-large-v3-turbo-ct2`。
 
 **難度：** `difficulty: tough` 會讓面試官更常質疑你的推論，也會追著要數字。
 
@@ -211,6 +226,9 @@ pytest                       # 自動化測試，不需要 GPU、網路或 Claud
 ```
 bot.py                語音 pipeline 主程式：計時、結束流程、專項練習、筆記板
 whisper_stt.py        Whisper 語音辨識：帶入對話上下文、過濾幻覺片段
+parakeet_stt.py       Parakeet 語音辨識：每段回答結束後整段重新辨識
+stt_common.py         兩種辨識共用：回答音訊、專有名詞修正、Parakeet 模型下載
+compare_stt.py        用你自己的錄音比較語音辨識模型
 claude_code_llm.py    透過 Claude Code CLI 呼叫面試官，CLI 當掉時自動恢復
 feedback.py           回饋報告和分數（面試結束自動執行，也可手動執行）
 analysis.py           從每輪時間算出回答長度、停頓、語速
