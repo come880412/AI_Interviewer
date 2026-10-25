@@ -276,10 +276,19 @@ def register(app: FastAPI):
                     v = cfg.variables
                     topics = rubric_areas(v.get("rubric", ""))
                     topics += [t for t in drill_suggestions(name) if t not in topics]
+                    scored = sessions(name)
+                    latest = None
+                    if scored:
+                        s = scored[-1]
+                        latest = {"started": s["started"], "session": s["session"], "verdict": s.get("verdict"),
+                                  "areas": s.get("areas", []), "file": s["file"]}
                     entry.update({
                         "company": v.get("company", ""),
                         "role": v.get("role_title", ""),
                         "round": v.get("round_name", ""),
+                        "interviewer": f"{v.get('interviewer_name', '')}, {v.get('interviewer_title', '')}".strip(", "),
+                        "latest": latest,
+                        "scored_sessions": len(scored),
                         "duration": cfg.duration_minutes,
                         "resume_layers": _resume_layers(folder),
                         "transcripts": _transcripts(cfg),
