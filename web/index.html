@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>模擬面試</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  #drill-panel { margin-top: 2px; }
+  .wizard-drafts textarea { min-height: 200px; }
+  #resume-text { min-height: 360px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>模擬面試</h1>
+    <p class="lede">選好面試和起點，按「前往面試」，再到面試頁按「開始面試」。</p>
+    <div class="nav">
+      <a href="/notepad" target="_blank" rel="noopener">共用筆記板</a>
+      <a href="#" id="progress-link">練習進度</a>
+      <a href="#setup">新增公司或關卡</a>
+    </div>
+  </header>
+
+  <div class="banner" id="active-banner" hidden>
+    <span id="active-text"></span>
+    <span class="actions">
+      <a href="/interview" target="_blank" rel="noopener">回到面試頁</a>
+      <button type="button" class="danger" id="end-btn">結束並產生報告</button>
+    </span>
+  </div>
+
+  <section id="interview-section" hidden>
+    <h2>面試</h2>
+    <div class="options" id="interviews"></div>
+  </section>
+  <div id="issues-box"></div>
+
+  <section>
+    <h2>從哪裡開始</h2>
+    <div class="options" id="starts"></div>
+    <div class="card" id="drill-panel" hidden>
+      <div class="grid2">
+        <label class="field">練習主題
+          <select id="drill-topic"></select>
+        </label>
+        <label class="field">時間
+          <select id="drill-minutes">
+            <option value="10">10 分鐘</option>
+            <option value="15" selected>15 分鐘</option>
+            <option value="20">20 分鐘</option>
+            <option value="30">30 分鐘</option>
+          </select>
+        </label>
+      </div>
+      <label class="field" id="drill-custom-box" hidden>自訂主題
+        <input type="text" id="drill-custom" placeholder="例如：立體視覺的 epipolar geometry 與深度誤差">
+      </label>
+      <p class="meta">面試官會跳過自我介紹，只針對這個主題由淺入深地問。「上次建議加強」的主題來自之前的回饋報告。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>履歷</h2>
+    <div class="card">
+      <div id="resume-current" class="meta"></div>
+      <div class="actions">
+        <label class="file-label"><input type="file" id="resume-file" accept=".pdf,.docx,.txt,.md"><span>上傳新履歷</span></label>
+        <button type="button" class="secondary" id="resume-edit">編輯目前履歷</button>
+        <span class="status" id="resume-status"></span>
+      </div>
+      <div id="resume-editor" hidden>
+        <div style="display: grid; gap: 10px;">
+          <p class="status">請檢查內容和原檔一致再儲存。舊版本會備份到 profile/backups/，下一次 Connect 生效。</p>
+          <textarea id="resume-text" spellcheck="false" aria-label="履歷內容"></textarea>
+          <div class="actions">
+            <label for="resume-target" class="meta">存到</label>
+            <select id="resume-target"></select>
+          </div>
+          <div class="actions">
+            <button type="button" id="resume-save">儲存履歷</button>
+            <button type="button" class="secondary" id="resume-cancel">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="setup">
+    <h2>新增公司或關卡</h2>
+    <details class="card" id="wizard">
+      <summary>貼上 JD 和面試資訊，讓 Claude 起草這一關的設定</summary>
+      <div style="display: grid; gap: 12px; margin-top: 10px;">
+        <label class="field">公司
+          <select id="w-company"></select>
+        </label>
+        <div class="grid2" id="w-new-company">
+          <label class="field">公司名稱<input type="text" id="w-company-name" placeholder="Acme"></label>
+          <label class="field">職缺名稱<input type="text" id="w-role" placeholder="Computer Vision Engineer"></label>
+        </div>
+        <div class="grid2">
+          <label class="field">關卡名稱<input type="text" id="w-round" placeholder="technical screen"></label>
+          <label class="field">關卡資料夾（小寫英文）<input type="text" id="w-round-slug" placeholder="tech"></label>
+          <label class="field">面試官名字<input type="text" id="w-interviewer" placeholder="Alex"></label>
+          <label class="field">面試官職稱<input type="text" id="w-interviewer-title" placeholder="Engineering Manager"></label>
+          <label class="field">時長（分鐘）<input type="number" id="w-duration" value="45" min="5" max="180"></label>
+          <label class="field">難度
+            <select id="w-difficulty"><option value="standard">standard</option><option value="tough">tough</option></select>
+          </label>
+        </div>
+        <label class="field" id="w-jd-box">職缺描述（JD）<textarea id="w-jd" rows="8"></textarea></label>
+        <label class="field">這一關的資訊（HR 的說明、面試官背景、你聽說的題型）<textarea id="w-notes" rows="5"></textarea></label>
+        <div class="actions">
+          <button type="button" id="w-draft">產生草稿</button>
+          <span class="status" id="w-status"></span>
+        </div>
+        <div class="wizard-drafts" id="w-drafts" hidden>
+          <div style="display: grid; gap: 12px;">
+            <p class="status">檢查並修改草稿，再按「建立」。不想要的段落可以清空。</p>
+            <label class="field">round_info.md（這關考什麼、面試官風格）<textarea id="w-round_info"></textarea></label>
+            <label class="field">question_bank.md（題庫）<textarea id="w-question_bank"></textarea></label>
+            <label class="field">rubric.md（評分標準，用 ## 標出每個面向）<textarea id="w-rubric"></textarea></label>
+            <label class="field" id="w-company-info-box">company_info.md（回答你的提問時可用的公司資訊）<textarea id="w-company_info"></textarea></label>
+            <label class="field">Whisper 提示詞（一行一個）<textarea id="w-hotwords" rows="6"></textarea></label>
+            <div class="actions">
+              <button type="button" id="w-create">建立</button>
+              <span class="status" id="w-create-status"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
+  </section>
+</main>
+
+<div class="bar">
+  <div class="bar-inner">
+    <span class="summary" id="summary">載入中…</span>
+    <button type="button" id="go" disabled>前往面試</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var data = null;
+  var state = { interview: null, start: "new-full" };  // start: "new-full", "new-drill", or a transcript file name
+  var lastStatus = "";
+  var $ = function (id) { return document.getElementById(id); };
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function api(url, body) {
+    var opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+    return fetch(url, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.detail || r.statusText);
+        return j;
+      });
+    });
+  }
+
+  function option(name, value, checked, build, disabled) {
+    var label = el("label", "option");
+    var input = el("input");
+    input.type = "radio";
+    input.name = name;
+    input.value = value;
+    input.checked = checked;
+    input.disabled = !!disabled;
+    var body = el("div");
+    build(body);
+    label.append(input, body);
+    return label;
+  }
+
+  function current() {
+    return data.interviews.find(function (i) { return i.name === state.interview; });
+  }
+
+  function hasErrors(iv) {
+    return iv.issues.some(function (i) { return i.level === "error"; });
+  }
+
+  // ----- Active session -----
+  function renderActive() {
+    var a = data.active;
+    $("active-banner").hidden = !a;
+    if (!a) return;
+    var mins = Math.max(0, Math.round((Date.now() / 1000 - a.started) / 60));
+    var mode = a.session.mode === "drill" ? "專項練習：" + a.session.topic : "完整面試";
+    $("active-text").textContent = "面試進行中：" + a.interview + " · " + mode + " · 已進行約 " + mins + " / " + a.minutes + " 分鐘";
+  }
+
+  var endArmed = false;
+  $("end-btn").addEventListener("click", function () {
+    var btn = this;
+    if (!endArmed) {
+      endArmed = true;
+      btn.textContent = "確定結束？再按一次";
+      setTimeout(function () { endArmed = false; btn.textContent = "結束並產生報告"; }, 4000);
+      return;
+    }
+    btn.disabled = true;
+    api("/api/session/end", {}).then(function () {
+      $("active-text").textContent = "已結束，正在產生回饋報告…";
+    }).catch(function (err) {
+      $("active-text").textContent = err.message;
+    }).finally(function () {
+      endArmed = false;
+      btn.disabled = false;
+      btn.textContent = "結束並產生報告";
+    });
+  });
+
+  // ----- Interviews -----
+  function renderInterviews() {
+    var box = $("interviews");
+    box.replaceChildren();
+    $("interview-section").hidden = data.interviews.length < 2;
+    data.interviews.forEach(function (iv) {
+      box.append(option("interview", iv.name, iv.name === state.interview, function (b) {
+        var t = el("div", "title");
+        t.append(el("span", null, iv.company + (iv.role ? " · " + iv.role : "")));
+        if (hasErrors(iv)) t.append(el("span", "chip bad", "設定有問題"));
+        b.append(t, el("div", "meta", (iv.round ? iv.round + " · " + iv.duration + " 分鐘 · " : "") + iv.name));
+      }));
+    });
+  }
+
+  function renderIssues() {
+    var box = $("issues-box");
+    box.replaceChildren();
+    var iv = current();
+    if (!iv.issues.length) return;
+    var card = el("details", "card");
+    card.open = hasErrors(iv);
+    var errors = iv.issues.filter(function (i) { return i.level === "error"; }).length;
+    card.append(el("summary", null, errors ? "設定有 " + errors + " 個錯誤，修正後才能開始" : "設定提醒（" + iv.issues.length + "）"));
+    var ul = el("ul", "issues");
+    iv.issues.forEach(function (i) { ul.append(el("li", i.level, i.message)); });
+    card.append(ul);
+    box.append(card);
+  }
+
+  // ----- Starting point -----
+  function transcriptLinks(iv, t) {
+    var links = el("div", "links");
+    var base = "/report?interview=" + encodeURIComponent(iv.name) + "&file=" + encodeURIComponent(t.file);
+    if (t.has_feedback) {
+      var a = el("a", null, "看回饋報告");
+      a.href = base; a.target = "_blank"; a.rel = "noopener";
+      links.append(a);
+    }
+    var tr = el("a", null, "看逐字稿");
+    tr.href = base + "&kind=transcript"; tr.target = "_blank"; tr.rel = "noopener";
+    links.append(tr);
+    if (t.generating) {
+      links.append(el("span", "meta", "回饋報告產生中…"));
+    } else if (!t.active) {
+      var btn = el("button", null, t.has_feedback ? "重新產生報告" : "產生回饋報告");
+      btn.type = "button";
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        btn.disabled = true;
+        api("/api/feedback", { interview: iv.name, file: t.file }).then(function () {
+          t.generating = true;
+          renderStarts();
+        }).catch(function (err) { btn.textContent = err.message; });
+      });
+      links.append(btn);
+    }
+    if (t.report_error) links.append(el("span", "error", "上次產生失敗：" + t.report_error));
+    return links;
+  }
+
+  function renderStarts() {
+    var box = $("starts");
+    box.replaceChildren();
+    var iv = current();
+    var blocked = hasErrors(iv);
+    box.append(option("start", "new-full", state.start === "new-full", function (b) {
+      b.append(el("div", "title", "開始新的完整面試"), el("div", "meta", "從開場到你的提問，約 " + iv.duration + " 分鐘"));
+    }, blocked));
+    box.append(option("start", "new-drill", state.start === "new-drill", function (b) {
+      var t = el("div", "title", "專項練習");
+      if (iv.suggested_topics && iv.suggested_topics.length) t.append(el("span", "chip info", "有上次建議加強的主題"));
+      b.append(t, el("div", "meta", "只針對一個主題練 10–30 分鐘，例如上次的弱點"));
+    }, blocked));
+    if (!iv.transcripts.length) box.append(el("div", "empty", "這個面試還沒有逐字稿。"));
+    iv.transcripts.forEach(function (t) {
+      box.append(option("start", t.file, state.start === t.file, function (b) {
+        var title = el("div", "title");
+        var kind = t.session.mode === "drill" ? "專項：" + t.session.topic : "完整面試";
+        title.append(el("span", null, "接續 " + t.started));
+        if (t.active) title.append(el("span", "chip info", "進行中"));
+        else if (t.has_feedback) title.append(el("span", "chip done", "已有回饋報告"));
+        else title.append(el("span", "chip cut", "中斷 · " + t.minutes + " / " + t.planned_minutes + " 分"));
+        b.append(title, el("div", "meta", kind + " · " + t.turns + " 段對話 · 已進行約 " + t.minutes + " 分鐘"));
+        if (t.last_question) b.append(el("div", "preview", "最後一題：" + t.last_question));
+        b.append(transcriptLinks(iv, t));
+      }, blocked || t.active));
+    });
+    renderDrillPanel();
+  }
+
+  function renderDrillPanel() {
+    var iv = current();
+    $("drill-panel").hidden = state.start !== "new-drill";
+    var select = $("drill-topic");
+    var keep = select.value;
+    select.replaceChildren();
+    var suggested = iv.suggested_topics || [];
+    if (suggested.length) {
+      var g1 = el("optgroup"); g1.label = "上次建議加強";
+      suggested.forEach(function (t) { var o = el("option", null, t); o.value = t; g1.append(o); });
+      select.append(g1);
+    }
+    var areas = (iv.drill_topics || []).filter(function (t) { return suggested.indexOf(t) < 0; });
+    if (areas.length) {
+      var g2 = el("optgroup"); g2.label = "評分面向";
+      areas.forEach(function (t) { var o = el("option", null, t); o.value = t; g2.append(o); });
+      select.append(g2);
+    }
+    var custom = el("option", null, "自訂主題…"); custom.value = "__custom";
+    select.append(custom);
+    if (keep && Array.from(select.options).some(function (o) { return o.value === keep; })) select.value = keep;
+    $("drill-custom-box").hidden = select.value !== "__custom";
+  }
+
+  function drillTopic() {
+    var v = $("drill-topic").value;
+    return v === "__custom" ? $("drill-custom").value.trim() : v;
+  }
+
+  function renderSummary() {
+    var iv = current();
+    var start;
+    if (state.start === "new-full") start = "新的完整面試";
+    else if (state.start === "new-drill") start = "專項練習：" + (drillTopic() || "（請選主題）") + "，" + $("drill-minutes").value + " 分鐘";
+    else start = "接續 " + iv.transcripts.find(function (t) { return t.file === state.start; }).started;
+    $("summary").textContent = iv.company + " · " + (iv.round || iv.name) + " · " + start;
+    $("summary").classList.remove("error");
+    $("go").disabled = hasErrors(iv);
+    $("progress-link").href = "/progress?interview=" + encodeURIComponent(iv.name);
+  }
+
+  function render() { renderActive(); renderInterviews(); renderIssues(); renderStarts(); renderSummary(); renderResume(); }
+
+  $("interviews").addEventListener("change", function (e) {
+    state.interview = e.target.value;
+    state.start = "new-full";
+    render();
+  });
+  $("starts").addEventListener("change", function (e) {
+    if (e.target.name !== "start") return;
+    state.start = e.target.value;
+    renderDrillPanel();
+    renderSummary();
+  });
+  $("drill-topic").addEventListener("change", function () {
+    $("drill-custom-box").hidden = this.value !== "__custom";
+    renderSummary();
+  });
+  $("drill-custom").addEventListener("input", renderSummary);
+  $("drill-minutes").addEventListener("change", renderSummary);
+
+  $("go").addEventListener("click", function () {
+    var body = { interview: state.interview, mode: "full" };
+    if (state.start === "new-drill") {
+      body.mode = "drill";
+      body.topic = drillTopic();
+      body.minutes = parseInt($("drill-minutes").value, 10);
+    } else if (state.start !== "new-full") {
+      body.resume = state.start;
+    }
+    $("go").disabled = true;
+    api("/api/selection", body).then(function () {
+      location.href = "/interview";
+    }).catch(function (err) {
+      $("summary").textContent = "沒有設定成功：" + err.message;
+      $("summary").classList.add("error");
+      $("go").disabled = false;
+    });
+  });
+
+  // ----- Resume -----
+  function layerLabel(iv, layer) {
+    if (layer.level === "interview") return "只用在這一關（" + (iv.round || iv.name) + "）";
+    if (layer.level === "company") return iv.company + " 的所有關卡";
+    return "所有公司共用";
+  }
+  function inUseLayer(iv) { return iv.resume_layers.find(function (l) { return l.in_use; }); }
+  // New uploads go to the company version by default, since resumes are usually tailored per company.
+  function defaultLayer(iv) {
+    return iv.resume_layers.find(function (l) { return l.level === "company"; }) || iv.resume_layers[0];
+  }
+
+  function setResumeStatus(text, cls) {
+    $("resume-status").textContent = text;
+    $("resume-status").className = "status" + (cls ? " " + cls : "");
+  }
+
+  function renderResume() {
+    var iv = current();
+    if (!iv.resume_layers.length) { $("resume-current").textContent = "請先修正這個面試的設定。"; return; }
+    var used = inUseLayer(iv);
+    var company = iv.resume_layers.find(function (l) { return l.level === "company"; });
+    if (!used) {
+      $("resume-current").textContent = "還沒有履歷。上傳一份 PDF、Word 或文字檔，系統會轉成 resume.md。";
+    } else {
+      var text = "目前使用：" + layerLabel(iv, used) + " · " + used.path + "（" + used.first_line + "，更新於 " + used.updated + "）";
+      if (company && !company.exists) text += "。還沒有 " + iv.company + " 專用的版本，上傳時預設存成這家公司專用。";
+      $("resume-current").textContent = text;
+    }
+    var select = $("resume-target");
+    select.replaceChildren();
+    iv.resume_layers.forEach(function (layer) {
+      var opt = el("option", null, layerLabel(iv, layer) + "（" + layer.path + "）");
+      opt.value = layer.target;
+      select.append(opt);
+    });
+    select.value = defaultLayer(iv).target;
+  }
+
+  function openEditor(text) {
+    $("resume-text").value = text;
+    $("resume-editor").hidden = false;
+    $("resume-text").focus();
+  }
+
+  $("resume-file").addEventListener("change", function () {
+    var input = this;
+    var file = input.files[0];
+    if (!file) return;
+    var form = new FormData();
+    form.append("file", file);
+    $("resume-editor").hidden = true;
+    $("resume-target").value = defaultLayer(current()).target;
+    setResumeStatus("正在讀取「" + file.name + "」並整理格式，大約需要一分鐘…");
+    fetch("/api/resume/convert", { method: "POST", body: form }).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || r.statusText); return j; });
+    }).then(function (j) {
+      setResumeStatus("轉換完成，請檢查下面的內容。");
+      openEditor(j.text);
+    }).catch(function (err) {
+      setResumeStatus(err.message, "error");
+    }).finally(function () { input.value = ""; });
+  });
+
+  $("resume-edit").addEventListener("click", function () {
+    var target = (inUseLayer(current()) || defaultLayer(current())).target;
+    api("/api/resume?target=" + encodeURIComponent(target)).then(function (j) {
+      setResumeStatus("");
+      $("resume-target").value = target;
+      openEditor(j.text);
+    });
+  });
+  $("resume-cancel").addEventListener("click", function () { $("resume-editor").hidden = true; setResumeStatus(""); });
+  $("resume-save").addEventListener("click", function () {
+    var btn = this;
+    btn.disabled = true;
+    api("/api/resume", { target: $("resume-target").value, text: $("resume-text").value }).then(function () {
+      $("resume-editor").hidden = true;
+      setResumeStatus("已儲存。", "ok");
+      return load();
+    }).catch(function (err) {
+      setResumeStatus("沒有儲存成功：" + err.message, "error");
+    }).finally(function () { btn.disabled = false; });
+  });
+
+  // ----- Setup wizard -----
+  var companies = [];
+  function existingCompany() {
+    return companies.find(function (c) { return c.slug === $("w-company").value; });
+  }
+  function renderWizardCompany() {
+    var c = existingCompany();
+    $("w-new-company").hidden = !!c;
+    $("w-jd-box").hidden = !!c;
+    $("w-company-info-box").hidden = !!c;
+  }
+  function loadCompanies() {
+    return api("/api/companies").then(function (j) {
+      companies = j.companies;
+      var select = $("w-company");
+      select.replaceChildren();
+      var fresh = el("option", null, "新的公司"); fresh.value = "";
+      select.append(fresh);
+      companies.forEach(function (c) {
+        var o = el("option", null, c.company + "（加一關到 interviews/" + c.slug + "/，現有：" + (c.rounds.join("、") || "無") + "）");
+        o.value = c.slug;
+        select.append(o);
+      });
+      renderWizardCompany();
+    });
+  }
+  $("w-company").addEventListener("change", renderWizardCompany);
+  $("w-round").addEventListener("input", function () {
+    $("w-round-slug").placeholder = this.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tech";
+  });
+
+  function wizardFields() {
+    var c = existingCompany();
+    return {
+      company_slug: c ? c.slug : "",
+      company: c ? c.company : $("w-company-name").value.trim(),
+      role_title: c ? c.role_title : $("w-role").value.trim(),
+      feedback_language: c ? c.feedback_language : "Traditional Chinese (Taiwan)",
+      round_name: $("w-round").value.trim(),
+      round_slug: $("w-round-slug").value.trim() || $("w-round-slug").placeholder,
+      interviewer_name: $("w-interviewer").value.trim(),
+      interviewer_title: $("w-interviewer-title").value.trim(),
+      duration_minutes: parseInt($("w-duration").value, 10) || 45,
+      difficulty: $("w-difficulty").value,
+      jd: c ? c.jd : $("w-jd").value,
+      notes: $("w-notes").value,
+    };
+  }
+
+  $("w-draft").addEventListener("click", function () {
+    var btn = this;
+    btn.disabled = true;
+    $("w-status").textContent = "Claude 正在起草，大約需要一到兩分鐘…";
+    $("w-status").className = "status";
+    api("/api/setup/draft", wizardFields()).then(function (d) {
+      ["round_info", "question_bank", "rubric", "company_info"].forEach(function (k) { $("w-" + k).value = d[k] || ""; });
+      $("w-hotwords").value = (d.hotwords || []).join("\n");
+      $("w-drafts").hidden = false;
+      $("w-status").textContent = "草稿完成。";
+      $("w-status").className = "status ok";
+    }).catch(function (err) {
+      $("w-status").textContent = err.message;
+      $("w-status").className = "status error";
+    }).finally(function () { btn.disabled = false; });
+  });
+
+  $("w-create").addEventListener("click", function () {
+    var btn = this;
+    var fields = wizardFields();
+    ["round_info", "question_bank", "rubric", "company_info"].forEach(function (k) { fields[k] = $("w-" + k).value; });
+    fields.hotwords = $("w-hotwords").value.split("\n").map(function (s) { return s.trim(); }).filter(Boolean);
+    btn.disabled = true;
+    api("/api/setup/create", fields).then(function (j) {
+      $("w-create-status").textContent = "已建立 interviews/" + j.interview + "/。";
+      $("w-create-status").className = "status ok";
+      state.interview = j.interview;
+      state.start = "new-full";
+      return Promise.all([load(), loadCompanies()]);
+    }).catch(function (err) {
+      $("w-create-status").textContent = err.message;
+      $("w-create-status").className = "status error";
+    }).finally(function () { btn.disabled = false; });
+  });
+
+  // ----- Loading and refreshing -----
+  function load() {
+    return api("/api/interviews").then(function (j) {
+      data = j;
+      if (!data.interviews.length) {
+        $("summary").textContent = "interviews/ 裡沒有面試。用下面的「新增公司或關卡」建立一個。";
+        return;
+      }
+      if (!state.interview || !current()) {
+        var sel = data.selected;
+        var known = sel && data.interviews.some(function (i) { return i.name === sel.interview; });
+        state.interview = known ? sel.interview : data.interviews[0].name;
+        if (known && sel.resume && current().transcripts.some(function (t) { return t.file === sel.resume; })) state.start = sel.resume;
+        else if (known && sel.mode === "drill") state.start = "new-drill";
+      }
+      if (state.start !== "new-full" && state.start !== "new-drill" &&
+          !current().transcripts.some(function (t) { return t.file === state.start; })) state.start = "new-full";
+      render();
+    });
+  }
+
+  // Refresh when a session starts or ends, or a report finishes.
+  function poll() {
+    api("/api/status").then(function (s) {
+      var key = JSON.stringify(s);
+      if (key !== lastStatus) {
+        var first = lastStatus === "";
+        lastStatus = key;
+        if (!first) return load();
+      }
+      if (data && data.active) { data.active = s.active; renderActive(); }
+    }).catch(function () {}).finally(function () { setTimeout(poll, 4000); });
+  }
+
+  load().then(poll).catch(function (err) { $("summary").textContent = "讀取面試清單失敗：" + err.message; });
+  loadCompanies().catch(function () {});
+})();
+</script>
+</body>
+</html>

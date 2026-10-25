@@ -1,0 +1,10 @@
+# Installed after requirements.txt by setup_gpu.sh.
+# onnxruntime-gpu replaces the CPU onnxruntime so Kokoro TTS runs on CUDA.
+onnxruntime-gpu==1.24.4
+# CUDA 12 runtime libraries for faster-whisper (CTranslate2) and onnxruntime-gpu.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
+# Without these onnxruntime-gpu silently falls back to the CPU.
+nvidia-curand-cu12
+nvidia-cufft-cu12
+nvidia-cuda-runtime-cu12

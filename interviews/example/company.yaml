@@ -1,0 +1,19 @@
+# ===== 範例公司（虛構）：複製 interviews/_template 建立你自己的公司，或在設定頁用「新增公司或關卡」 =====
+company: Acme Vision
+role_title: Computer Vision Engineer
+feedback_language: Traditional Chinese (Taiwan)   # 面試後回饋報告的語言
+
+# ===== 語音辨識提示詞：JD 裡容易聽錯的專有名詞 =====
+stt_hotwords:
+  - Acme Vision
+  - OpenCV
+  - PyTorch
+  - TensorRT
+  - ONNX
+  - INT8
+  - quantization
+  - homography
+  - epipolar
+  - disparity
+  - Kalman
+  - IoU

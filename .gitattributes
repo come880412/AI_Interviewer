@@ -1,0 +1,5 @@
+# The project runs in WSL/Linux: keep LF endings so shell scripts work after a Windows checkout.
+* text=auto eol=lf
+*.wav binary
+*.pdf binary
+*.docx binary

@@ -1,0 +1,12 @@
+# Pinned to versions that were at least a few weeks old when this project was written.
+pipecat-ai[anthropic,whisper,kokoro,silero,webrtc,runner]==1.12.0
+anthropic==1.17.0
+faster-whisper==1.2.1
+kokoro-onnx==0.6.1
+pyyaml==6.0.3
+# Reads uploaded PDF resumes on the setup page (Word files are read with the standard library).
+pypdf==5.4.0
+# Voice cloning (optional, see voice_clone in config.yaml). CPU torch is enough:
+#   pip install "pocket-tts>=2.1.0,<3" --extra-index-url https://download.pytorch.org/whl/cpu
+# Tests (run with: python -m pytest)
+pytest==8.3.5

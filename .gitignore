@@ -1,0 +1,22 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Personal data: interview transcripts and reports, resumes and their backups
+transcripts/*
+!transcripts/.gitkeep
+profile/
+interviews/**/resume.md
+
+# Your own interview folders stay local; only the template and the fictional example are shared
+interviews/*
+!interviews/_template/
+!interviews/example/
+
+# Voice reference recordings of real people
+interviews/**/voice/
+
+# Downloaded by download_models.py: third-party lip-sync files and avatar models
+web/vendor/
+web/avatars/

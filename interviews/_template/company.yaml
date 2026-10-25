@@ -1,0 +1,13 @@
+# ===== 公司層級設定：複製整個 _template 資料夾並改成公司名稱，例如 interviews/acme =====
+# 這一層放這家公司每一關共用的東西：company.yaml、jd.md，以及這家公司專用的 resume.md（選用）。
+# 沒有 resume.md 就用 profile/resume.md；也可以在網頁上傳履歷時選「這家公司的所有關卡」。
+# 每一關一個子資料夾（例如 round1/ 改名成 tech/、hm/），放那一關的 config.yaml、round_info.md、question_bank.md。
+company: Acme
+role_title: Computer Vision Engineer
+feedback_language: Traditional Chinese (Taiwan)   # 面試後回饋報告的語言
+
+# ===== 語音辨識提示詞 =====
+# 只放 JD 裡真的容易聽錯的專有名詞。清單太長，Whisper 聽不清楚時反而會把清單念出來。
+# 每一關的 config.yaml 也可以再加自己的詞，兩邊會合併。
+stt_hotwords:
+  - Acme

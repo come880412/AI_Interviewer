@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>共用筆記板</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  main { max-width: 1000px; }
+  #pad { min-height: 65vh; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>共用筆記板</h1>
+    <p class="lede">在這裡寫程式、虛擬碼或設計的架構，面試官會在你下一次開口回答時看到最新內容。跟面試頁（/client）並排開著用。</p>
+    <div class="nav"><a href="/">← 回到設定頁</a></div>
+  </header>
+  <div class="card">
+    <textarea id="pad" class="code" spellcheck="false" aria-label="筆記內容" placeholder="例如：
+def associate(tracks, detections):
+    cost = 1 - iou(tracks, detections)
+    ..."></textarea>
+    <div class="actions"><span class="status" id="status">面試開始後，內容會自動傳給面試官。</span></div>
+  </div>
+</main>
+<script>
+(function () {
+  var pad = document.getElementById("pad");
+  var statusEl = document.getElementById("status");
+  var timer = null;
+  var lastSent = "";
+  try { pad.value = localStorage.getItem("notepad") || ""; } catch (e) {}
+
+  function send() {
+    if (pad.value === lastSent) return;
+    var text = pad.value;
+    fetch("/api/notepad", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text }),
+    }).then(function (r) {
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error(j.detail || r.statusText);
+        lastSent = text;
+        statusEl.textContent = "已同步給面試官（" + new Date().toLocaleTimeString() + "）";
+        statusEl.className = "status ok";
+      });
+    }).catch(function (err) {
+      statusEl.textContent = err.message;
+      statusEl.className = "status";
+    });
+  }
+
+  pad.addEventListener("input", function () {
+    try { localStorage.setItem("notepad", pad.value); } catch (e) {}
+    statusEl.textContent = "輸入中…";
+    statusEl.className = "status";
+    clearTimeout(timer);
+    timer = setTimeout(send, 2500);
+  });
+  pad.addEventListener("keydown", function (e) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      var s = pad.selectionStart;
+      pad.value = pad.value.slice(0, s) + "    " + pad.value.slice(pad.selectionEnd);
+      pad.selectionStart = pad.selectionEnd = s + 4;
+      pad.dispatchEvent(new Event("input"));
+    }
+  });
+})();
+</script>
+</body>
+</html>
