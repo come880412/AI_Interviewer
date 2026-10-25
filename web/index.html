@@ -283,6 +283,9 @@
       o.value = iv.name;
       select.append(o);
     });
+    var add = el("option", null, "＋ 新增公司或關卡…");
+    add.value = "__new";
+    select.append(add);
     select.value = state.interview;
     var iv = current();
     var parts = [iv.role, iv.round, iv.interviewer, iv.duration ? iv.duration + " 分鐘" : ""].filter(Boolean);
@@ -398,6 +401,14 @@
     });
   });
   $("interview-select").addEventListener("change", function () {
+    if (this.value === "__new") {
+      // Not an interview: open the wizard and keep the current interview selected.
+      this.value = state.interview;
+      showTab("setup");
+      $("panel-setup").scrollIntoView({ behavior: "smooth", block: "start" });
+      $("w-company").focus();
+      return;
+    }
     state.interview = this.value;
     state.mode = "full";
     state.resume = null;
