@@ -156,7 +156,10 @@ mv interviews/acme/round1 interviews/acme/tech
 
 **用誰的 Claude：** `.env` 的 `LLM_BACKEND=claude_code`（預設）會用你 Claude Code 的登入身分，不需要 API key，會自動找 PATH 上的 `claude` 或 VS Code 擴充套件內建的那份，找不到就設 `CLAUDE_CODE_PATH`。每輪第一個字約 2–3 秒。如果 CLI 在面試中當掉或超過 60 秒沒有回應，面試官會先說「Sorry, give me just a second」，重新啟動 CLI、帶入目前為止的對話後再試一次。改成 `LLM_BACKEND=api` 就走 `ANTHROPIC_API_KEY`。
 
-**複製聲音：** 只能用本人同意使用的聲音。準備一段 10–20 秒、只有一個人說話、沒有背景音樂的 `.wav`，放在關卡資料夾的 `voice/` 裡，`config.yaml` 設 `voice_clone: voice/xxx.wav`。第一次使用要先到 https://huggingface.co/kyutai/pocket-tts 同意條款，再執行 `uvx hf auth login`，並安裝 `requirements.txt` 最後註解裡的 pocket-tts。Pocket TTS 跑在 CPU 上，每場開始時會多花約 10 秒載入。
+**Pocket TTS（內建聲音或複製聲音）：** 第一次使用要先到 https://huggingface.co/kyutai/pocket-tts 同意條款，再執行 `uvx hf auth login`，並安裝 `requirements.txt` 最後註解裡的 pocket-tts。Pocket TTS 跑在 CPU 上，每場開始時會多花約 10 秒載入。
+
+- **內建聲音**：`config.yaml` 設 `pocket_voice: stuart_bell`。英文男聲有 `stuart_bell`、`javert`、`michael`、`paul`、`charles`、`george`、`jean`、`marius`、`peter_yearsley`、`bill_boerst`；女聲有 `alba`、`anna`、`vera`、`fantine`、`eponine`、`azelma`、`mary`、`jane`、`eve`、`caro_davy`、`cosette`。實測以 `stuart_bell`、`javert` 最清楚。
+- **複製聲音**：只能用本人同意使用的聲音。準備一段 10–20 秒、只有一個人說話、沒有背景音樂的 `.wav`，放在關卡資料夾的 `voice/` 裡，`config.yaml` 設 `voice_clone: voice/xxx.wav`（會優先於 `pocket_voice`）。**錄音的音質會被一起複製**：電話、視訊會議或壓縮過的影片音訊頻寬很窄，複製出來的聲音會悶悶的。請用原始音質、寬頻（16 kHz 以上）的錄音。
 
 **面試官搶話：** `.env` 的 `CANDIDATE_PAUSE_SECS`（預設 0.8）是你停頓多久之後才開始判斷你講完了沒。還是會被打斷就調高，嫌回應慢就調低。
 

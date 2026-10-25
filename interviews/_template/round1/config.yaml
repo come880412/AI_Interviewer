@@ -14,3 +14,5 @@ voice_language: en-us
 # ===== 複製聲音（Pocket TTS，CPU 執行）=====
 # 填了就改用這段參考音檔的聲音，Kokoro 的 voice 會被忽略。只能用本人同意使用的聲音。
 # voice_clone: voice/reference.wav
+# 或用 Pocket TTS 的內建聲音（不用準備錄音）：stuart_bell、javert、michael、paul、charles…
+# pocket_voice: stuart_bell

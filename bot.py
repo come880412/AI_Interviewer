@@ -287,12 +287,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         )
     audio_dir = transcript.path.with_name(transcript.path.name.replace("-transcript.md", "-audio"))
 
-    if cfg.voice_clone:
-        # Imported here because it pulls in torch, which slows startup when the clone is not used.
+    if cfg.voice_clone or cfg.pocket_voice:
+        # Imported here because it pulls in torch, which slows startup when Pocket TTS is not used.
         from pipecat.services.pocket_tts.tts import PocketTTSService
 
+        # A reference recording to clone, or the name of one of Pocket TTS's built-in voices.
+        voice = str(cfg.voice_clone.resolve()) if cfg.voice_clone else cfg.pocket_voice
         tts = PocketTTSService(
-            settings=PocketTTSService.Settings(voice=str(cfg.voice_clone.resolve()), language=Language.EN),
+            settings=PocketTTSService.Settings(voice=voice, language=Language.EN),
             text_filters=[end_filter],
         )
     else:

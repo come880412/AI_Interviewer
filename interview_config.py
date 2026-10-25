@@ -40,7 +40,7 @@ NOT_PROVIDED = "(not provided)"
 REQUIRED_KEYS = ["company", "role_title", "interviewer_name", "interviewer_title", "round_name"]
 KNOWN_KEYS = set(REQUIRED_KEYS) | {
     "duration_minutes", "difficulty", "feedback_language", "voice", "voice_language", "voice_clone", "stt_hotwords",
-    "avatar", "avatar_body",
+    "avatar", "avatar_body", "pocket_voice",
 }
 # Used when neither the round nor the company folder has its own copy.
 SHARED_FILES = {"resume": PROFILE_DIR / "resume.md"}
@@ -88,6 +88,7 @@ class InterviewConfig:
     voice: str = "am_michael"
     voice_language: str = "en-us"
     voice_clone: Path | None = None  # reference .wav for Pocket TTS; None = use the Kokoro voice
+    pocket_voice: str | None = None  # a Pocket TTS built-in voice, e.g. "stuart_bell", used when there is no voice_clone
     stt_hotwords: list[str] = field(default_factory=list)
     duration_minutes: int = 30
     avatar: str = "david"  # web/avatars/<avatar>.glb on the video interview page
@@ -123,6 +124,7 @@ class InterviewConfig:
             voice=raw.get("voice", "am_michael"),
             voice_language=raw.get("voice_language", "en-us"),
             voice_clone=voice_clone,
+            pocket_voice=str(raw["pocket_voice"]) if raw.get("pocket_voice") else None,
             stt_hotwords=hotwords,
             duration_minutes=int(raw.get("duration_minutes", 30)),
             avatar=str(raw.get("avatar", "david")),
