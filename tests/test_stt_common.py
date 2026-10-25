@@ -4,9 +4,9 @@ from stt_common import TurnAudio, hotword_fixer, save_wav
 
 
 def test_hotword_fixer_restores_split_and_recased_terms():
-    fix = hotword_fixer(["TensorRT", "RetailNext", "INT8", "ByteTrack"])
+    fix = hotword_fixer(["TensorRT", "AcmeVision", "INT8", "ByteTrack"])
     assert fix("We used tensor RT and Tensor-RT.") == "We used TensorRT and TensorRT."
-    assert fix("retail next is hiring") == "RetailNext is hiring"
+    assert fix("acme vision is hiring") == "AcmeVision is hiring"
     assert fix("int 8 quantization") == "INT8 quantization"
     assert fix("byte track ids") == "ByteTrack ids"
 
