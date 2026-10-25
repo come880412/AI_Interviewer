@@ -11,18 +11,24 @@
   .stage { position: relative; min-height: 0; background: radial-gradient(ellipse at 50% 35%, #2a3342 0%, #151a22 60%, #0e1116 100%); overflow: hidden; }
   #avatar { position: absolute; inset: 0; }
   .placeholder { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: #9aa4b2; font-size: 15px; }
-  .nameplate { position: absolute; left: 16px; bottom: 16px; background: rgba(10, 13, 18, 0.72); border-radius: 8px; padding: 8px 12px; font-size: 14px; line-height: 1.4; backdrop-filter: blur(4px); }
+  .nameplate { position: absolute; left: 16px; bottom: 16px; background: rgba(10, 13, 18, 0.72); border-radius: 8px; padding: 8px 12px; font-size: 14px; line-height: 1.4; backdrop-filter: blur(4px); max-width: 280px; }
   .nameplate b { display: block; font-size: 15px; }
   .nameplate span { color: #b3bccb; font-size: 12px; }
   .speaking-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3a4352; margin-right: 6px; vertical-align: middle; transition: background 0.15s; }
   .speaking-dot.on { background: #52d48a; box-shadow: 0 0 8px #52d48a; }
-  .captions { position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(760px, calc(100% - 300px)); display: grid; gap: 6px; pointer-events: none; }
-  .caption { background: rgba(10, 13, 18, 0.78); border-radius: 8px; padding: 6px 12px; font-size: 16px; line-height: 1.45; min-height: 0; }
+  .captions { position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(760px, calc(100% - 340px)); display: grid; gap: 6px; pointer-events: none; }
+  .caption { background: rgba(10, 13, 18, 0.8); border-radius: 8px; padding: 6px 12px; font-size: 17px; line-height: 1.45; }
   .caption small { display: block; color: #8f99a8; font-size: 11px; letter-spacing: 0.04em; }
   .caption.you { font-size: 14px; color: #c9d1dc; }
+  .caption .listening { color: #8f99a8; font-style: italic; }
+  .pause-overlay { position: absolute; inset: 0; background: rgba(9, 12, 17, 0.72); backdrop-filter: blur(3px); display: grid; place-items: center; text-align: center; }
+  .pause-overlay h2 { font-size: 26px; color: #e6e9ee; margin: 0 0 6px; letter-spacing: 0; }
+  .pause-overlay p { color: #9aa4b2; margin: 0 0 18px; }
+  .pause-overlay button { padding: 12px 28px; font-size: 16px; }
   .controls { background: #151a22; border-top: 1px solid #262e3a; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
   .controls .group { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .controls a { color: #8ca5ff; font-size: 14px; }
+  .controls label { color: #9aa4b2; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
   #status { font-size: 13px; color: #9aa4b2; }
   #status.live { color: #52d48a; }
   #status.error { color: #ff8d82; }
@@ -30,7 +36,9 @@
   .meter i { display: block; height: 100%; width: 0; background: #52d48a; transition: width 0.08s; }
   button.ghost { background: transparent; border: 1px solid #3a4352; color: #e6e9ee; padding: 8px 14px; }
   button.ghost.active { background: #b3261e; border-color: #b3261e; }
-  @media (max-width: 760px) { .captions { width: calc(100% - 32px); bottom: 84px; } }
+  input[type="range"] { width: 110px; accent-color: #8ca5ff; }
+  #delay-value { font-variant-numeric: tabular-nums; min-width: 52px; }
+  @media (max-width: 760px) { .captions { width: calc(100% - 32px); bottom: 96px; } .nameplate { max-width: calc(100% - 32px); } }
 </style>
 <script type="importmap">
 { "imports": {
@@ -53,16 +61,26 @@
     <div class="caption" id="cap-bot" hidden><small>面試官</small><span id="cap-bot-text"></span></div>
     <div class="caption you" id="cap-you" hidden><small>系統聽到你說</small><span id="cap-you-text"></span></div>
   </div>
+  <div class="pause-overlay" id="pause-overlay" hidden>
+    <div>
+      <h2>面試已暫停</h2>
+      <p id="pause-info">計時已停止，麥克風不會收音。</p>
+      <button type="button" id="resume-big">繼續面試</button>
+    </div>
+  </div>
 </div>
 <div class="controls">
   <div class="group">
     <button type="button" id="connect">開始面試</button>
+    <button type="button" class="ghost" id="pause" disabled>暫停</button>
     <button type="button" class="ghost" id="mute" disabled>麥克風靜音</button>
     <span class="meter" title="你的麥克風音量"><i id="meter"></i></span>
     <span id="status">準備好就按「開始面試」。請戴耳機。</span>
   </div>
   <div class="group">
-    <label class="meta" style="color:#9aa4b2"><input type="checkbox" id="show-captions" checked> 字幕</label>
+    <label title="聲音延遲多少再播放，讓嘴型和聲音對齊。嘴型比聲音慢就調大，比聲音快就調小。">嘴型延遲
+      <input type="range" id="delay" min="0" max="300" step="10" value="100"><span id="delay-value">100 ms</span></label>
+    <label><input type="checkbox" id="show-captions" checked> 字幕</label>
     <a href="/notepad" target="_blank" rel="noopener">共用筆記板</a>
     <a href="/client/" id="voice-only">純語音頁</a>
     <a href="/">設定頁</a>
@@ -78,13 +96,20 @@ let headaudio = null;     // HeadAudio lip-sync node
 let audioCtx = null;
 let pc = null;
 let micStream = null;
+let delayNode = null;     // delays the interviewer's voice so the lips can keep up
+let outputGain = null;    // mutes the interviewer's voice while paused
+let voiceLevel = null;    // analyser on the voice as it is heard, for captions
 let ended = false;
-let endRequested = false;  // the candidate pressed "end", so a dropped connection is expected
+let endRequested = false; // the candidate pressed "end", so a dropped connection is expected
+let paused = false;
 
 function setStatus(text, cls = "") {
   statusEl.textContent = text;
   statusEl.className = cls;
 }
+
+function store(key, value) { try { localStorage.setItem(key, value); } catch {} }
+function recall(key) { try { return localStorage.getItem(key); } catch { return null; } }
 
 // ----- Interviewer info and avatar -----
 const view = await fetch("/api/interview-view").then((r) => r.ok ? r.json() : null).catch(() => null);
@@ -162,17 +187,71 @@ async function setupLipSync() {
 
 await loadAvatar();
 
-// ----- Captions from the interview server (RTVI messages over the data channel) -----
-let botCaption = "";
-function showCaption(id, text) {
-  const box = $(id);
-  box.hidden = !text || !$("show-captions").checked;
-  $(id + "-text").textContent = text;
+// ----- Lip-sync delay -----
+const savedDelay = Number(recall("lipsync-delay-ms"));
+if (Number.isFinite(savedDelay) && recall("lipsync-delay-ms") !== null) $("delay").value = String(savedDelay);
+function applyDelay() {
+  const ms = Number($("delay").value);
+  $("delay-value").textContent = `${ms} ms`;
+  if (delayNode) delayNode.delayTime.value = headaudio ? ms / 1000 : 0;
 }
-$("show-captions").addEventListener("change", () => {
-  showCaption("cap-bot", botCaption);
-  showCaption("cap-you", $("cap-you-text").textContent);
-});
+$("delay").addEventListener("input", () => { applyDelay(); store("lipsync-delay-ms", $("delay").value); });
+applyDelay();
+
+// ----- Captions -----
+// Each sentence arrives as a "bot-output" message (spoken_status "new") when the server starts on it, before or as
+// the voice begins. Words are revealed only while the interviewer's voice is actually audible, at a speaking
+// pace, so the caption follows the speech instead of jumping ahead or lagging a sentence behind.
+const WORDS_PER_SECOND = 2.5;
+let botWords = [];      // every word of the interviewer's current turn
+let botShown = 0;       // how many of them are on screen (fractional while revealing)
+let youSegments = [];   // the candidate's transcribed pieces of the current answer
+let youListening = false;
+let lastSpeaker = "bot";
+
+function captionsOn() { return $("show-captions").checked && !paused; }
+
+function renderBotCaption() {
+  const words = botWords.slice(0, Math.floor(botShown));
+  const text = words.slice(-34).join(" ");  // about two lines
+  $("cap-bot").hidden = !text || !captionsOn();
+  $("cap-bot-text").textContent = text;
+}
+
+function renderYouCaption() {
+  const text = youSegments.join(" ").split(/\s+/).slice(-30).join(" ");
+  $("cap-you").hidden = (!text && !youListening) || !captionsOn();
+  const span = $("cap-you-text");
+  span.replaceChildren(document.createTextNode(text ? text + " " : ""));
+  if (youListening) {
+    const l = document.createElement("span");
+    l.className = "listening";
+    l.textContent = text ? "…" : "聆聽中…";
+    span.append(l);
+  }
+}
+
+$("show-captions").addEventListener("change", () => { renderBotCaption(); renderYouCaption(); });
+
+const levelBuf = new Float32Array(1024);
+function voiceAudible() {
+  if (!voiceLevel) return true;  // no analyser: reveal at the speaking pace
+  voiceLevel.getFloatTimeDomainData(levelBuf);
+  let sum = 0;
+  for (const x of levelBuf) sum += x * x;
+  return Math.sqrt(sum / levelBuf.length) > 0.01;
+}
+
+let lastTick = performance.now();
+(function captionTick(t) {
+  const dt = (t - lastTick) / 1000;
+  lastTick = t;
+  if (botShown < botWords.length && voiceAudible()) {
+    botShown = Math.min(botWords.length, botShown + dt * WORDS_PER_SECOND);
+    renderBotCaption();
+  }
+  if (!ended) requestAnimationFrame(captionTick);
+})(performance.now());
 
 function onServerMessage(raw) {
   let msg;
@@ -180,23 +259,48 @@ function onServerMessage(raw) {
   if (msg.label !== "rtvi-ai") return;
   switch (msg.type) {
     case "bot-llm-started":
-      botCaption = "";
+      // A new interviewer turn: start a fresh caption, and the candidate's next answer starts fresh too.
+      botWords = [];
+      botShown = 0;
+      lastSpeaker = "bot";
+      renderBotCaption();
       break;
-    case "bot-tts-text":
-      botCaption = (botCaption + " " + (msg.data?.text || "")).replace(/\[\[\s*END\s*\]\]/g, "").trim();
-      showCaption("cap-bot", botCaption);
+    case "bot-output": {
+      // "new" marks a sentence the voice is about to speak; "completed" repeats it after synthesis.
+      if (msg.data?.spoken_status !== "new") break;
+      const text = (msg.data.text || "").replace(/\[\[\s*END\s*\]\]/g, "").trim();
+      if (text) botWords.push(...text.split(/\s+/));
+      break;
+    }
+    case "bot-interrupted":
+      botWords = botWords.slice(0, Math.floor(botShown));  // drop what was never said
+      renderBotCaption();
       break;
     case "bot-started-speaking":
       $("speaking-dot").classList.add("on");
       break;
     case "bot-stopped-speaking":
       $("speaking-dot").classList.remove("on");
+      botShown = botWords.length;  // the voice finished: show the rest
+      renderBotCaption();
       break;
     case "user-started-speaking":
+      if (lastSpeaker === "bot") youSegments = [];
+      lastSpeaker = "you";
+      youListening = true;
+      renderYouCaption();
       if (head) head.lookAtCamera(1500);
       break;
+    case "user-stopped-speaking":
+      youListening = false;
+      renderYouCaption();
+      break;
     case "user-transcription":
-      if (msg.data?.final) showCaption("cap-you", msg.data.text);
+      // Each pause in an answer yields one transcribed piece; keep them all for this answer.
+      if (msg.data?.final && msg.data.text?.trim()) {
+        youSegments.push(msg.data.text.trim());
+        renderYouCaption();
+      }
       break;
   }
 }
@@ -213,12 +317,13 @@ function startMeter(stream) {
     let sum = 0;
     for (const x of buf) sum += x * x;
     const level = Math.min(1, Math.sqrt(sum / buf.length) * 6);
-    $("meter").style.width = (micStream && micStream.getAudioTracks()[0].enabled ? level * 100 : 0) + "%";
+    const live = micStream && micStream.getAudioTracks()[0].enabled;
+    $("meter").style.width = (live ? level * 100 : 0) + "%";
     if (!ended) requestAnimationFrame(tick);
   })();
 }
 
-// ----- Interviewer audio: to the speakers (slightly delayed) and to the lip-sync -----
+// ----- Interviewer audio: to the speakers (delayed) and to the lip-sync -----
 function playRemote(stream) {
   // Chrome only feeds a remote WebRTC stream into Web Audio if a media element also holds it.
   const keepAlive = new Audio();
@@ -228,11 +333,59 @@ function playRemote(stream) {
 
   if (!audioCtx) audioCtx = new AudioContext();
   const source = audioCtx.createMediaStreamSource(stream);
-  // Delay the sound by about the lip-sync's processing time so mouth and voice line up.
-  const delay = new DelayNode(audioCtx, { delayTime: headaudio ? 0.1 : 0 });
-  source.connect(delay).connect(audioCtx.destination);
+  delayNode = new DelayNode(audioCtx, { delayTime: 0, maxDelayTime: 1 });
+  outputGain = new GainNode(audioCtx, { gain: paused ? 0 : 1 });
+  voiceLevel = audioCtx.createAnalyser();
+  voiceLevel.fftSize = 1024;
+  source.connect(delayNode).connect(outputGain).connect(audioCtx.destination);
+  outputGain.connect(voiceLevel);  // what you hear drives the caption pace
   if (headaudio) source.connect(headaudio);
+  applyDelay();
 }
+
+// ----- Pause -----
+function showPaused(isPaused) {
+  paused = isPaused;
+  $("pause-overlay").hidden = !paused;
+  $("pause").textContent = paused ? "繼續面試" : "暫停";
+  const track = micStream && micStream.getAudioTracks()[0];
+  if (track && !$("mute").classList.contains("active")) track.enabled = !paused;
+  if (outputGain) outputGain.gain.value = paused ? 0 : 1;
+  setStatus(paused ? "已暫停" : "面試進行中", paused ? "" : "live");
+  renderBotCaption();
+  renderYouCaption();
+}
+
+async function togglePause() {
+  $("pause").disabled = true;
+  $("resume-big").disabled = true;
+  try {
+    const r = await fetch(paused ? "/api/session/resume" : "/api/session/pause", { method: "POST" });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail);
+    showPaused(j.paused);
+  } catch (err) {
+    setStatus(err.message, "error");
+  } finally {
+    $("pause").disabled = false;
+    $("resume-big").disabled = false;
+  }
+}
+$("pause").addEventListener("click", togglePause);
+$("resume-big").addEventListener("click", togglePause);
+
+// Keep in step when the interview is paused or resumed from the setup page.
+async function syncPause() {
+  if (ended || !pc) return;
+  try {
+    const s = await fetch("/api/status").then((r) => r.json());
+    if (s.active && s.active.paused !== paused) showPaused(s.active.paused);
+    if (s.active && s.active.paused) {
+      $("pause-info").textContent = `計時已停止（已進行約 ${Math.round(s.active.elapsed / 60)} 分鐘），麥克風不會收音。`;
+    }
+  } catch {}
+}
+setInterval(syncPause, 3000);
 
 // ----- Connection (Pipecat SmallWebRTC) -----
 async function connect() {
@@ -264,10 +417,11 @@ async function connect() {
       const s = pc.connectionState;
       if (s === "connected") {
         setStatus("面試進行中", "live");
+        $("pause").disabled = false;
         $("mute").disabled = false;
         $("end").disabled = false;
       } else if (s === "failed" || s === "disconnected" || s === "closed") {
-        const goodbye = /\[\[\s*END\s*\]\]|bye|take care|thank/i.test(botCaption);
+        const goodbye = /bye|take care|thank/i.test(botWords.join(" "));
         finish(s === "failed" && !endRequested && !goodbye ? "連線中斷，可回設定頁接續這場面試。" : null);
       }
     };
@@ -307,9 +461,10 @@ function finish(message) {
   if (ended) return;
   ended = true;
   cleanup();
+  paused = false;
+  $("pause-overlay").hidden = true;
   $("speaking-dot").classList.remove("on");
-  $("mute").disabled = true;
-  $("end").disabled = true;
+  ["pause", "mute", "end"].forEach((id) => { $(id).disabled = true; });
   $("connect").hidden = true;
   setStatus(message || "面試已結束。回饋報告約一分鐘內產生，可到設定頁查看。");
 }
@@ -319,9 +474,10 @@ $("connect").addEventListener("click", connect);
 $("mute").addEventListener("click", () => {
   const track = micStream && micStream.getAudioTracks()[0];
   if (!track) return;
-  track.enabled = !track.enabled;
-  $("mute").textContent = track.enabled ? "麥克風靜音" : "取消靜音";
-  $("mute").classList.toggle("active", !track.enabled);
+  const muting = !$("mute").classList.contains("active");
+  $("mute").classList.toggle("active", muting);
+  $("mute").textContent = muting ? "取消靜音" : "麥克風靜音";
+  track.enabled = !muting && !paused;
 });
 
 let endArmed = false;

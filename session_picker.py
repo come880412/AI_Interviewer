@@ -62,7 +62,10 @@ class ActiveSession:
     transcript: Path
     session: dict
     minutes: int
-    started: float  # time.time() when the interview began, counting earlier sessions of a resume
+    elapsed: Callable[[], float]  # seconds of interview time so far, pauses left out
+    is_paused: Callable[[], bool]
+    pause: Callable[[], Awaitable[None]]
+    resume: Callable[[], Awaitable[None]]
     end: Callable[[], Awaitable[None]]
     update_notepad: Callable[[str], None]
 
@@ -179,7 +182,8 @@ def _active_info() -> dict | None:
         "file": active.transcript.name,
         "session": active.session,
         "minutes": active.minutes,
-        "started": active.started,
+        "elapsed": round(active.elapsed()),
+        "paused": active.is_paused(),
     }
 
 
@@ -334,6 +338,20 @@ def register(app: FastAPI):
             raise HTTPException(409, "目前沒有進行中的面試。")
         await active.end()
         return {"ok": True}
+
+    @app.post("/api/session/pause")
+    async def pause_session():
+        if not active:
+            raise HTTPException(409, "目前沒有進行中的面試。")
+        await active.pause()
+        return {"ok": True, "paused": active.is_paused()}
+
+    @app.post("/api/session/resume")
+    async def resume_session():
+        if not active:
+            raise HTTPException(409, "目前沒有進行中的面試。")
+        await active.resume()
+        return {"ok": True, "paused": active.is_paused()}
 
     @app.post("/api/notepad")
     async def notepad(req: NotepadRequest):

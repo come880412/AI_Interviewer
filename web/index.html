@@ -68,6 +68,7 @@
     <span id="active-text"></span>
     <span class="actions">
       <a href="/interview" target="_blank" rel="noopener">回到面試頁</a>
+      <button type="button" class="secondary" id="pause-btn">暫停</button>
       <button type="button" class="danger" id="end-btn">結束並產生報告</button>
     </span>
   </div>
@@ -253,9 +254,21 @@
     var a = data.active;
     $("active-banner").hidden = !a;
     if (!a) return;
-    var mins = Math.max(0, Math.round((Date.now() / 1000 - a.started) / 60));
-    $("active-text").textContent = "面試進行中：" + a.interview + " · " + sessionLabel(a.session) + " · 已進行約 " + mins + " / " + a.minutes + " 分鐘";
+    var mins = Math.max(0, Math.round(a.elapsed / 60));
+    $("active-text").textContent = (a.paused ? "面試已暫停：" : "面試進行中：") + a.interview + " · " + sessionLabel(a.session) + " · 已進行約 " + mins + " / " + a.minutes + " 分鐘";
+    $("pause-btn").textContent = a.paused ? "繼續面試" : "暫停";
   }
+
+  $("pause-btn").addEventListener("click", function () {
+    var btn = this;
+    btn.disabled = true;
+    api(data.active && data.active.paused ? "/api/session/resume" : "/api/session/pause", {}).then(function (r) {
+      data.active.paused = r.paused;
+      renderActive();
+    }).catch(function (err) {
+      $("active-text").textContent = err.message;
+    }).finally(function () { btn.disabled = false; });
+  });
 
   var endArmed = false;
   $("end-btn").addEventListener("click", function () {
@@ -699,7 +712,8 @@
   // Refresh when a session starts or ends, or a report finishes.
   function poll() {
     api("/api/status").then(function (s) {
-      var key = JSON.stringify(s);
+      // Reload when a session starts or ends, or a report starts or finishes; the elapsed time alone is not a reason.
+      var key = JSON.stringify({ file: s.active && s.active.file, generating: s.generating });
       if (key !== lastStatus) {
         var first = lastStatus === "";
         lastStatus = key;

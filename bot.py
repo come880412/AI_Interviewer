@@ -21,6 +21,8 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     EndFrame,
     Frame,
+    InputAudioRawFrame,
+    InterruptionWorkerFrame,
     LLMRunFrame,
     TTSAudioRawFrame,
 )
@@ -117,6 +119,20 @@ class EndTokenFilter(BaseTextFilter):
             self._on_end()
             text = END_TOKEN.sub("", text)
         return text
+
+
+class MicGate(FrameProcessor):
+    """Drops the candidate's audio while the interview is paused, so nothing is heard or transcribed."""
+
+    def __init__(self):
+        super().__init__()
+        self.closed = False
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if self.closed and isinstance(frame, InputAudioRawFrame):
+            return
+        await self.push_frame(frame, direction)
 
 
 class SpeechClock(FrameProcessor):
@@ -301,9 +317,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         ),
     )
 
+    mic_gate = MicGate()
     pipeline = Pipeline(
         [
             transport.input(),
+            mic_gate,
             stt,
             user_aggregator,
             llm,
@@ -318,7 +336,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     worker = PipelineWorker(
         pipeline,
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
-        idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
+        # No idle timeout: a paused interview is silent on purpose. Closing the page still ends it.
+        idle_timeout_secs=None,
         # Logs per-turn latency so you can see whether STT, Claude or TTS is the bottleneck.
         observers=[MetricsLogObserver(include_metrics={TurnMetricsData})],
         processor_unusable_policy=ProcessorUnusablePolicy.END,
@@ -332,10 +351,39 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     # Time checks the earlier sessions already passed are not repeated; the latest one goes in the resume note.
     passed = [note for at, note in checks if at <= transcript.prior_elapsed]
     notepad = ""  # latest contents of the shared notepad page
+    paused_since: float | None = None  # time.monotonic() when the current pause began
+    paused_total = 0.0  # seconds spent paused in this session
 
     def now() -> float:
-        """Seconds since the interview began, counting earlier sessions of a resumed interview."""
-        return transcript.prior_elapsed + (time.monotonic() - session_started)
+        """Seconds of interview time, counting earlier sessions of a resumed interview and leaving out pauses."""
+        pausing = time.monotonic() - paused_since if paused_since is not None else 0.0
+        return transcript.prior_elapsed + (time.monotonic() - session_started) - paused_total - pausing
+
+    async def pause():
+        nonlocal paused_since
+        if paused_since is not None or end_reason:
+            return
+        paused_since = time.monotonic()
+        mic_gate.closed = True
+        await worker.queue_frame(InterruptionWorkerFrame())  # stop the interviewer mid-sentence
+        logger.info("Interview paused")
+
+    async def resume():
+        nonlocal paused_since, paused_total
+        if paused_since is None:
+            return
+        away = time.monotonic() - paused_since
+        paused_total += away
+        paused_since = None
+        mic_gate.closed = False
+        logger.info(f"Interview resumed after {away / 60:.1f} min")
+        context.add_message({
+            "role": "developer",
+            "content": f"[time check] The candidate paused the interview for about {max(1, round(away / 60))} minute(s) "
+            "and is back. Welcome them back in one short sentence, then repeat or rephrase your last question "
+            "if it was not fully answered; otherwise continue with the next one.",
+        })
+        await worker.queue_frames([LLMRunFrame()])
 
     async def end_from_page():
         nonlocal end_reason
@@ -352,11 +400,13 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         # Added silently, like time checks: Claude reads it with the candidate's next answer.
         context.add_message({"role": "developer", "content": f"[notepad] The shared notepad now contains:\n{text}"})
 
-    async def run_timer(started: float):
+    async def run_timer():
+        # Polls the interview clock, which stands still while paused.
         for at, note in checks:
             if at <= transcript.prior_elapsed:
                 continue
-            await asyncio.sleep(max(0, at - (time.monotonic() - started)))
+            while now() < at:
+                await asyncio.sleep(1)
             # Added silently: Claude sees it on its next reply and is told never to read it aloud.
             context.add_message({"role": "developer", "content": note})
             logger.info(note)
@@ -367,7 +417,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         session_started = time.monotonic()
         session_picker.active = ActiveSession(
             interview=cfg.name, transcript=transcript.path, session=session, minutes=minutes,
-            started=time.time() - transcript.prior_elapsed, end=end_from_page, update_notepad=update_notepad,
+            elapsed=now, is_paused=lambda: paused_since is not None, pause=pause, resume=resume,
+            end=end_from_page, update_notepad=update_notepad,
         )
         if saved:
             logger.info("Candidate connected, resuming interview")
@@ -380,7 +431,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             opening = "[time check] The candidate has joined. Begin the interview with your opening now."
         context.add_message({"role": "developer", "content": opening})
         await worker.queue_frames([LLMRunFrame()])
-        timer_task = asyncio.create_task(run_timer(session_started - transcript.prior_elapsed))
+        timer_task = asyncio.create_task(run_timer())
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
