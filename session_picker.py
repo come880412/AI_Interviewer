@@ -9,6 +9,7 @@
 
 import asyncio
 import html
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -182,6 +183,20 @@ def _active_info() -> dict | None:
     }
 
 
+LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+\.)\s")
+
+
+def _render_markdown(text: str) -> str:
+    """Markdown to HTML. Python-Markdown only starts a list after a blank line, but reports often put a
+    list right under a bold label ("**Strongest**" then "1. ..."), so add the blank line first."""
+    lines: list[str] = []
+    for line in text.splitlines():
+        if LIST_ITEM.match(line) and lines and lines[-1].strip() and not LIST_ITEM.match(lines[-1]):
+            lines.append("")
+        lines.append(line)
+    return markdown.markdown("\n".join(lines), extensions=["tables", "fenced_code", "sane_lists"])
+
+
 def _report_page(title: str, body_html: str, back: str = "/") -> HTMLResponse:
     template = (WEB / "report.html").read_text(encoding="utf-8")
     page = template.replace("<!--TITLE-->", html.escape(title)).replace("<!--BACK-->", back).replace("<!--CONTENT-->", body_html)
@@ -341,7 +356,7 @@ def register(app: FastAPI):
         report_path = sibling(path, "feedback")
         if not report_path.exists():
             raise HTTPException(404, "這場還沒有回饋報告。")
-        body = markdown.markdown(report_path.read_text(encoding="utf-8"), extensions=["tables", "fenced_code", "sane_lists"])
+        body = _render_markdown(report_path.read_text(encoding="utf-8"))
         return _report_page(f"回饋報告 · {title}", body)
 
     @app.get("/api/progress")

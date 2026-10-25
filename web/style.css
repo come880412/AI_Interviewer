@@ -89,6 +89,10 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; }
 .s3 { background: var(--cut-soft); color: var(--cut); }
 .s4, .s5 { background: var(--done-soft); color: var(--done); }
 .report { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 24px 24px; overflow-wrap: anywhere; }
+.report h1 { font-size: 22px; margin: 16px 0 8px; }
+.report h2 { font-size: 19px; color: var(--ink); font-weight: 700; letter-spacing: 0; margin: 28px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.report h3 { font-size: 16px; margin: 20px 0 6px; }
+.report li { margin: 3px 0; }
 .report blockquote { margin: 8px 0; padding: 4px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 6px 6px 0; }
 .report pre { background: var(--bg); padding: 10px; border-radius: 6px; overflow-x: auto; }
 .report code { font-family: var(--mono); font-size: 0.9em; }

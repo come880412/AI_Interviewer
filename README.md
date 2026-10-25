@@ -4,7 +4,7 @@
 
 ```
 瀏覽器 (麥克風/喇叭)          http://localhost:7860/  設定頁：選面試、專項練習、接續、報告、進度、履歷、新增關卡
-   ⇅ WebRTC                  http://localhost:7860/client  面試頁
+   ⇅ WebRTC                  http://localhost:7860/interview  面試頁：虛擬面試官、即時字幕
 bot.py (Pipecat 1.12.0)
    ├─ Silero VAD + Smart Turn v3   本機，判斷你講完了沒、處理打斷
    ├─ faster-whisper large-v3      本機 GPU，語音轉文字
@@ -14,6 +14,25 @@ bot.py (Pipecat 1.12.0)
 ```
 
 除了 Claude，其他元件全部在你的電腦上執行。
+
+## 畫面
+
+以下截圖都來自 repo 附的虛構範例 `interviews/example/`（Acme Vision 技術面試），候選人和練習紀錄也都是虛構的。
+
+**面試頁**：3D 虛擬面試官在瀏覽器裡繪製，嘴型跟著面試官的語音動；面試中下方會出現即時字幕。
+
+<img src="docs/images/interview.png" alt="面試頁：3D 虛擬面試官、名牌與控制列" width="820">
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><b>設定頁</b>：選完整面試、專項練習或接續之前的逐字稿，每一場都能看報告、看逐字稿或補產生報告。<br><br><img src="docs/images/setup.png" alt="設定頁：起點選擇與逐字稿清單"></td>
+    <td width="50%" valign="top"><b>回饋報告</b>：依評分標準打分、最強與最弱的時刻、逐題回顧和英文參考答案、表達分析。<br><br><img src="docs/images/report.png" alt="回饋報告頁"></td>
+  </tr>
+</table>
+
+**練習進度**：各面向分數隨場次的趨勢，以及每一場的判定和下次建議練的主題。
+
+<img src="docs/images/progress.png" alt="練習進度頁：各面向趨勢與每一場的分數" width="820">
 
 ## 需求
 
