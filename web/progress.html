@@ -124,7 +124,7 @@
     d.sessions.slice().reverse().forEach(function (s) {
       var tr = el("tr");
       tr.append(el("td", "meta", s.started));
-      tr.append(el("td", null, s.session.mode === "drill" ? "專項：" + s.session.topic : "完整面試"));
+      tr.append(el("td", null, s.session.mode === "drill" ? (s.session.coach ? "教練：" : "專項：") + s.session.topic : "完整面試"));
       tr.append(el("td", null, verdicts[s.verdict] || s.verdict || "—"));
       areas.forEach(function (a) { var td = el("td"); td.append(scoreChip(scoreOf(s, a))); tr.append(td); });
       tr.append(el("td", "meta", (s.next_focus || []).join("；")));

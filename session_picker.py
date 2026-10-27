@@ -48,10 +48,14 @@ class Selection:
     mode: str = "full"  # "full" interview or a focused "drill"
     topic: str | None = None  # drill topic
     minutes: int | None = None  # drill length
+    coach: bool = False  # drill with feedback and a model answer after every answer
 
     def session(self) -> dict:
         if self.mode == "drill":
-            return {"mode": "drill", "topic": self.topic, "minutes": self.minutes}
+            session = {"mode": "drill", "topic": self.topic, "minutes": self.minutes}
+            if self.coach:
+                session["coach"] = True
+            return session
         return {"mode": "full"}
 
 
@@ -102,6 +106,7 @@ class SelectionRequest(BaseModel):
     mode: str = "full"
     topic: str | None = None
     minutes: int | None = None
+    coach: bool = False
 
 
 class ResumeSaveRequest(BaseModel):
@@ -306,6 +311,7 @@ def register(app: FastAPI):
                 "interview": interview_name(selection.interview),
                 "resume": selection.resume.name if selection.resume else None,
                 "mode": selection.mode, "topic": selection.topic, "minutes": selection.minutes,
+                "coach": selection.coach,
             }
         return {"selected": current, "active": _active_info(), "interviews": result}
 
@@ -328,8 +334,9 @@ def register(app: FastAPI):
                 raise HTTPException(400, "專項練習需要選一個主題。")
             if not req.minutes or not 3 <= req.minutes <= 120:
                 raise HTTPException(400, "練習時間要在 3 到 120 分鐘之間。")
-        selection = Selection(folder, resume, req.mode if req.mode in ("full", "drill") else "full",
-                              (req.topic or "").strip() or None, req.minutes)
+        mode = req.mode if req.mode in ("full", "drill") else "full"
+        selection = Selection(folder, resume, mode, (req.topic or "").strip() or None, req.minutes,
+                              req.coach and mode == "drill")
         return {"ok": True}
 
     @app.post("/api/session/end")

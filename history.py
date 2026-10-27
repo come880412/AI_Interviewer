@@ -57,7 +57,8 @@ def practice_history(interview: str) -> str:
     lines = [f"The candidate has done {len(past)} scored practice session(s) for this round. Most recent first:"]
     for s in reversed(past[-RECENT_SESSIONS:]):
         mode = s["session"].get("mode", "full")
-        label = f"drill on {s['session'].get('topic')}" if mode == "drill" else "full interview"
+        coached = "coached " if s["session"].get("coach") else ""
+        label = f"{coached}drill on {s['session'].get('topic')}" if mode == "drill" else "full interview"
         weak = "; ".join(w.get("topic", "") for w in s.get("weaknesses", [])) or "none recorded"
         lines.append(f"- {s['started']} ({label}), verdict {s.get('verdict', 'unknown')}. Weak spots: {weak}")
 

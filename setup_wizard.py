@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from interview_config import INTERVIEWS_DIR, PROFILE_DIR, PROMPTS_DIR
+from interview_config import INTERVIEWS_DIR, LANGUAGES, PROFILE_DIR, PROMPTS_DIR, language_code
 from llm import complete
 
 SETUP_MODEL = os.getenv("FEEDBACK_MODEL", os.getenv("LLM_MODEL", "claude-opus-5-5"))
@@ -64,6 +64,7 @@ async def draft(fields: dict) -> dict:
         "interviewer_title": fields.get("interviewer_title") or "unknown",
         "duration_minutes": str(fields.get("duration_minutes") or 45),
         "feedback_language": fields.get("feedback_language") or "Traditional Chinese (Taiwan)",
+        "interview_language": LANGUAGES[language_code(fields.get("interview_language")) or "en"],
         "job_description": fields["jd"],
         "notes": fields.get("notes") or "(no notes)",
         "resume": _resume_for(fields.get("company_slug")),
@@ -128,9 +129,15 @@ def create(fields: dict) -> str:
         "round_name": fields["round_name"].strip(),
         "duration_minutes": int(fields.get("duration_minutes") or 45),
         "difficulty": fields.get("difficulty") or "standard",
-        "voice": fields.get("voice") or "am_michael",
-        "voice_language": "en-gb" if (fields.get("voice") or "").startswith("b") else "en-us",
     }
+    if language_code(fields.get("interview_language")) == "zh-TW":
+        # Kokoro's Chinese voices are zm_* (male) and zf_* (female).
+        config.update({"interview_language": "zh-TW", "voice": "zm_010"})
+    else:
+        config.update({
+            "voice": fields.get("voice") or "am_michael",
+            "voice_language": "en-gb" if (fields.get("voice") or "").startswith("b") else "en-us",
+        })
     if round_hotwords:
         config["stt_hotwords"] = round_hotwords
     _dump(round_dir / "config.yaml", config, "# 這一關的設定（由網頁精靈建立）\n")

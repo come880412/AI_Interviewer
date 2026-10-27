@@ -11,12 +11,12 @@
   .stage { position: relative; min-height: 0; background: radial-gradient(ellipse at 50% 35%, #2a3342 0%, #151a22 60%, #0e1116 100%); overflow: hidden; }
   #avatar { position: absolute; inset: 0; }
   .placeholder { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: #9aa4b2; font-size: 15px; }
-  .nameplate { position: absolute; left: 16px; bottom: 16px; background: rgba(10, 13, 18, 0.72); border-radius: 8px; padding: 8px 12px; font-size: 14px; line-height: 1.4; backdrop-filter: blur(4px); max-width: 280px; }
+  .nameplate { position: absolute; left: 16px; top: 16px; background: rgba(10, 13, 18, 0.72); border-radius: 8px; padding: 8px 12px; font-size: 14px; line-height: 1.4; backdrop-filter: blur(4px); max-width: 280px; }
   .nameplate b { display: block; font-size: 15px; }
   .nameplate span { color: #b3bccb; font-size: 12px; }
   .speaking-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3a4352; margin-right: 6px; vertical-align: middle; transition: background 0.15s; }
   .speaking-dot.on { background: #52d48a; box-shadow: 0 0 8px #52d48a; }
-  .captions { position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(760px, calc(100% - 340px)); display: grid; gap: 6px; pointer-events: none; }
+  .captions { position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(860px, calc(100% - 32px)); display: grid; gap: 6px; pointer-events: none; }
   .caption { background: rgba(10, 13, 18, 0.8); border-radius: 8px; padding: 6px 12px; font-size: 17px; line-height: 1.45; }
   .caption small { display: block; color: #8f99a8; font-size: 11px; letter-spacing: 0.04em; }
   .caption.you { font-size: 14px; color: #c9d1dc; }
@@ -38,7 +38,7 @@
   button.ghost.active { background: #b3261e; border-color: #b3261e; }
   input[type="range"] { width: 110px; accent-color: #8ca5ff; }
   #delay-value { font-variant-numeric: tabular-nums; min-width: 52px; }
-  @media (max-width: 760px) { .captions { width: calc(100% - 32px); bottom: 96px; } .nameplate { max-width: calc(100% - 32px); } }
+  @media (max-width: 760px) { .captions { bottom: 96px; } .nameplate { max-width: calc(100% - 32px); } }
 </style>
 <script type="importmap">
 { "imports": {
@@ -115,7 +115,7 @@ function recall(key) { try { return localStorage.getItem(key); } catch { return 
 const view = await fetch("/api/interview-view").then((r) => r.ok ? r.json() : null).catch(() => null);
 if (view) {
   $("who").textContent = view.interviewer_name;
-  const mode = view.session.mode === "drill" ? `專項練習：${view.session.topic}` : (view.resuming ? "接續面試" : view.round);
+  const mode = view.session.mode === "drill" ? `${view.session.coach ? "教練模式" : "專項練習"}：${view.session.topic}` : (view.resuming ? "接續面試" : view.round);
   $("who-sub").textContent = `${view.interviewer_title}, ${view.company} · ${mode}`;
   $("nameplate").hidden = false;
   document.title = `面試中 · ${view.company}`;
@@ -202,8 +202,25 @@ applyDelay();
 // Each sentence arrives as a "bot-output" message (spoken_status "new") when the server starts on it, before or as
 // the voice begins. Words are revealed only while the interviewer's voice is actually audible, at a speaking
 // pace, so the caption follows the speech instead of jumping ahead or lagging a sentence behind.
+// Chinese is revealed a character at a time and English a word at a time, each at its own speaking pace.
 const WORDS_PER_SECOND = 2.5;
-let botWords = [];      // every word of the interviewer's current turn
+const CHINESE_CHARS_PER_SECOND = 4.5;
+const CJK = "\\u3400-\\u9fff\\uf900-\\ufaff", CJK_PUNCT = "\\u3000-\\u303f\\uff00-\\uffef";
+// A unit is one Chinese character with any punctuation after it, or one run of other non-space text.
+const UNIT = new RegExp(`[${CJK}][${CJK_PUNCT}]*|[^\\s${CJK}]+`, "g");
+// Spaces only between English words and between English and Chinese, as in chinese.py's tidy_spaces.
+const CJK_SPACE = new RegExp(`(?<=[${CJK_PUNCT}]) +| +(?=[${CJK_PUNCT}])|(?<=[${CJK}]) +(?=[${CJK}])`, "g");
+const CAPTION_WIDTH = 200;  // about two lines, a Chinese character counting as two letters
+function units(text) { return text.match(UNIT) || []; }
+function isChinese(unit) { return new RegExp(`^[${CJK}]`).test(unit); }
+function unitWidth(unit) { return isChinese(unit) ? 2 * unit.length : unit.length + 1; }
+// The last units that fit in the caption, joined with spaces only between English words.
+function captionText(list) {
+  let width = 0, start = list.length;
+  while (start > 0 && width + unitWidth(list[start - 1]) <= CAPTION_WIDTH) width += unitWidth(list[--start]);
+  return list.slice(start).join(" ").replace(CJK_SPACE, "");
+}
+let botWords = [];      // every unit (word or Chinese character) of the interviewer's current turn
 let botShown = 0;       // how many of them are on screen (fractional while revealing)
 let youSegments = [];   // the candidate's transcribed pieces of the current answer
 let youListening = false;
@@ -212,14 +229,13 @@ let lastSpeaker = "bot";
 function captionsOn() { return $("show-captions").checked && !paused; }
 
 function renderBotCaption() {
-  const words = botWords.slice(0, Math.floor(botShown));
-  const text = words.slice(-34).join(" ");  // about two lines
+  const text = captionText(botWords.slice(0, Math.floor(botShown)));
   $("cap-bot").hidden = !text || !captionsOn();
   $("cap-bot-text").textContent = text;
 }
 
 function renderYouCaption() {
-  const text = youSegments.join(" ").split(/\s+/).slice(-30).join(" ");
+  const text = captionText(units(youSegments.join(" ")));
   $("cap-you").hidden = (!text && !youListening) || !captionsOn();
   const span = $("cap-you-text");
   span.replaceChildren(document.createTextNode(text ? text + " " : ""));
@@ -247,7 +263,8 @@ let lastTick = performance.now();
   const dt = (t - lastTick) / 1000;
   lastTick = t;
   if (botShown < botWords.length && voiceAudible()) {
-    botShown = Math.min(botWords.length, botShown + dt * WORDS_PER_SECOND);
+    const pace = isChinese(botWords[Math.floor(botShown)]) ? CHINESE_CHARS_PER_SECOND : WORDS_PER_SECOND;
+    botShown = Math.min(botWords.length, botShown + dt * pace);
     renderBotCaption();
   }
   if (!ended) requestAnimationFrame(captionTick);
@@ -269,7 +286,7 @@ function onServerMessage(raw) {
       // "new" marks a sentence the voice is about to speak; "completed" repeats it after synthesis.
       if (msg.data?.spoken_status !== "new") break;
       const text = (msg.data.text || "").replace(/\[\[\s*END\s*\]\]/g, "").trim();
-      if (text) botWords.push(...text.split(/\s+/));
+      if (text) botWords.push(...units(text));
       break;
     }
     case "bot-interrupted":

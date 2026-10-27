@@ -3,6 +3,7 @@
 Run once after setup:  source cuda_env.sh && python download_models.py
 (Silero VAD and Smart Turn v3 ship inside pipecat, so they need no download.)
 Only the avatar files for the video interview page:  python download_models.py avatar
+Only the Chinese voice for interview_language: zh-TW:  python download_models.py chinese
 """
 
 import os
@@ -61,10 +62,24 @@ def download_parakeet_model() -> bool:
         return False
 
 
+def download_chinese_voice() -> bool:
+    step("Kokoro v1.1-zh Chinese voice (interview_language: zh-TW, about 380 MB)")
+    try:
+        from chinese_tts import download_kokoro_zh
+
+        print(f"downloaded to: {download_kokoro_zh()}")
+        return True
+    except Exception as e:
+        print(f"FAIL: {e}")
+        return False
+
+
 if sys.argv[1:] == ["avatar"]:
     sys.exit(0 if download_avatar_files() else 1)
 if sys.argv[1:] == ["parakeet"]:
     sys.exit(0 if download_parakeet_model() else 1)
+if sys.argv[1:] == ["chinese"]:
+    sys.exit(0 if download_chinese_voice() else 1)
 
 
 step("1. Whisper STT model")

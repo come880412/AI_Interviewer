@@ -104,3 +104,9 @@ def test_session_info_drill():
     text = feedback.session_info(saved({"mode": "drill", "topic": "CUDA streams", "minutes": 15}, 600))
     assert text.startswith('a focused practice drill on "CUDA streams", planned for 15 minutes, about 10 minutes used.')
     assert "Score only the areas this drill covered." in text
+    assert "Coach mode" not in text
+
+
+def test_session_info_coached_drill():
+    text = feedback.session_info(saved({"mode": "drill", "topic": "CUDA streams", "minutes": 15, "coach": True}, 600))
+    assert "Score the candidate's first attempt at each question" in text

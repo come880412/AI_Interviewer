@@ -35,8 +35,13 @@ SCORES_BLOCK = re.compile(r"<scores>\s*(.*?)\s*</scores>", re.DOTALL)
 def session_info(saved: SavedTranscript) -> str:
     minutes = round(saved.elapsed_secs / 60)
     if saved.session.get("mode") == "drill":
-        return (f"a focused practice drill on \"{saved.session.get('topic')}\", planned for "
+        text = (f"a focused practice drill on \"{saved.session.get('topic')}\", planned for "
                 f"{saved.session.get('minutes')} minutes, about {minutes} minutes used. Score only the areas this drill covered.")
+        if saved.session.get("coach"):
+            text += (" Coach mode was on: the interviewer gave feedback and a model answer after each answer, and the "
+                     "candidate then retried. Score the candidate's first attempt at each question, and mention in the "
+                     "summary whether the retries improved.")
+        return text
     return f"a full mock interview, about {minutes} minutes used."
 
 

@@ -266,3 +266,47 @@ def test_validate_non_mapping_yaml(dirs, make_round):
     round_dir = make_round("acme", "hm")
     (round_dir / "config.yaml").write_text("- round_name\n- interviewer_name\n", encoding="utf-8")
     assert levels(ic.validate(round_dir), "error")
+
+
+# --- interview language ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value, expected", [
+    (None, "en"), ("", "en"), ("en", "en"), ("English", "en"),
+    ("zh-TW", "zh-TW"), ("zh", "zh-TW"), ("zh-tw", "zh-TW"), ("中文", "zh-TW"),
+    ("fr", None),
+])
+def test_language_code(value, expected):
+    assert ic.language_code(value) == expected
+
+
+def test_load_english_by_default(dirs, make_round):
+    cfg = ic.InterviewConfig.load(make_round("acme", "hm"))
+    assert cfg.language == "en" and not cfg.chinese
+    assert cfg.variables["interview_language"] == "English"
+    assert cfg.variables["feedback_language"] == "English"
+
+
+def test_load_chinese_interview(dirs, make_round):
+    cfg = ic.InterviewConfig.load(make_round("acme", "hr", config={**ROUND, "interview_language": "zh"}))
+    assert cfg.language == "zh-TW" and cfg.chinese
+    assert cfg.variables["interview_language"].startswith("Mandarin Chinese")
+    assert cfg.variables["feedback_language"] == "Traditional Chinese (Taiwan)"
+
+
+def test_load_keeps_explicit_feedback_language(dirs, make_round):
+    cfg = ic.InterviewConfig.load(make_round(
+        "acme", "hr", config={**ROUND, "interview_language": "zh-TW", "feedback_language": "English"}))
+    assert cfg.variables["feedback_language"] == "English"
+
+
+def test_load_rejects_unknown_language(dirs, make_round):
+    with pytest.raises(ValueError, match="interview_language"):
+        ic.InterviewConfig.load(make_round("acme", "hm", config={**ROUND, "interview_language": "fr"}))
+
+
+def test_validate_language(dirs, make_round):
+    bad = make_round("acme", "fr", config={**ROUND, "interview_language": "fr"}, company_files=ALL_FILES)
+    assert any("interview_language" in e for e in levels(ic.validate(bad), "error"))
+    cloned = make_round("acme", "zh", config={**ROUND, "interview_language": "zh-TW", "pocket_voice": "javert"},
+                        company_files=ALL_FILES)
+    assert any("Pocket TTS" in w for w in levels(ic.validate(cloned), "warning"))

@@ -124,3 +124,29 @@ def test_subtitle_credits_match(text):
 ])
 def test_subtitle_credits_do_not_match_normal_speech(text):
     assert not SUBTITLE_CREDITS.search(text)
+
+
+@pytest.mark.parametrize("text", [
+    "字幕由Amara.org社区提供",
+    "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目",
+    "謝謝觀看",
+    "感谢观看",
+    "优优独播剧场",
+])
+def test_chinese_subtitle_credits_match(text):
+    assert SUBTITLE_CREDITS.search(text)
+
+
+@pytest.mark.parametrize("text", [
+    "我們把 GRU 換成 MLP，因為 QNN 不支援",
+    "我負責影片字幕的偵測模型",
+    "謝謝你的問題",
+])
+def test_chinese_subtitle_credits_do_not_match_normal_speech(text):
+    assert not SUBTITLE_CREDITS.search(text)
+
+
+def test_copies_context_counts_chinese_characters():
+    stt = make_stt(context="你可以說明一下你當初是怎麼把模型量化到 INT8 的嗎？")
+    assert stt._copies_context("你當初是怎麼把模型量化到 INT8 的")
+    assert not stt._copies_context("我先用校正資料集做 post-training quantization")

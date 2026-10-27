@@ -40,8 +40,20 @@ NOT_PROVIDED = "(not provided)"
 REQUIRED_KEYS = ["company", "role_title", "interviewer_name", "interviewer_title", "round_name"]
 KNOWN_KEYS = set(REQUIRED_KEYS) | {
     "duration_minutes", "difficulty", "feedback_language", "voice", "voice_language", "voice_clone", "stt_hotwords",
-    "avatar", "avatar_body", "pocket_voice",
+    "avatar", "avatar_body", "pocket_voice", "interview_language",
 }
+# interview_language values, and how the prompts name each language.
+LANGUAGES = {"en": "English", "zh-TW": "Mandarin Chinese (Traditional Chinese as used in Taiwan)"}
+LANGUAGE_ALIASES = {"english": "en", "en-us": "en", "en-gb": "en", "zh": "zh-TW", "zh-tw": "zh-TW", "zh_tw": "zh-TW",
+                    "chinese": "zh-TW", "mandarin": "zh-TW", "中文": "zh-TW"}
+# The report language when neither the company nor the round sets feedback_language.
+DEFAULT_FEEDBACK_LANGUAGE = {"en": "English", "zh-TW": "Traditional Chinese (Taiwan)"}
+
+
+def language_code(value) -> str | None:
+    """"en" or "zh-TW" for an interview_language setting (missing means English), or None if unknown."""
+    text = str(value or "en").strip()
+    return text if text in LANGUAGES else LANGUAGE_ALIASES.get(text.lower())
 # Used when neither the round nor the company folder has its own copy.
 SHARED_FILES = {"resume": PROFILE_DIR / "resume.md"}
 
@@ -93,6 +105,11 @@ class InterviewConfig:
     duration_minutes: int = 30
     avatar: str = "david"  # web/avatars/<avatar>.glb on the video interview page
     avatar_body: str = "M"  # "M" or "F", for the avatar's posture and gestures
+    language: str = "en"  # "en" or "zh-TW" (interview_language)
+
+    @property
+    def chinese(self) -> bool:
+        return self.language == "zh-TW"
 
     @classmethod
     def load(cls, folder: str | Path) -> "InterviewConfig":
@@ -112,6 +129,12 @@ class InterviewConfig:
             path = next((p for p in candidates if p.exists()), None)
             variables[key] = path.read_text(encoding="utf-8").strip() if path else NOT_PROVIDED
 
+        language = language_code(raw.get("interview_language"))
+        if not language:
+            raise ValueError(f"interview_language '{raw['interview_language']}' is not one of: {', '.join(LANGUAGES)}")
+        variables["interview_language"] = LANGUAGES[language]
+        variables.setdefault("feedback_language", DEFAULT_FEEDBACK_LANGUAGE[language])
+
         voice_clone = None
         if raw.get("voice_clone"):
             voice_clone = next((d / raw["voice_clone"] for d in search if (d / raw["voice_clone"]).exists()), None)
@@ -129,6 +152,7 @@ class InterviewConfig:
             duration_minutes=int(raw.get("duration_minutes", 30)),
             avatar=str(raw.get("avatar", "david")),
             avatar_body="F" if str(raw.get("avatar_body", "M")).upper().startswith("F") else "M",
+            language=language,
         )
 
     def render(self, template_name: str, **extra: str) -> str:
@@ -178,6 +202,11 @@ def validate(folder: Path) -> list[dict]:
         add("error", "duration_minutes 必須是正整數")
     if raw.get("difficulty", "standard") not in ("standard", "tough"):
         add("warning", "difficulty 只能是 standard 或 tough")
+    language = language_code(raw.get("interview_language"))
+    if not language:
+        add("error", "interview_language 只能是 en（英文）或 zh-TW（中文）")
+    elif language == "zh-TW" and (raw.get("voice_clone") or raw.get("pocket_voice")):
+        add("warning", "Pocket TTS 不會說中文，中文面試會忽略 voice_clone / pocket_voice，改用 Kokoro 中文聲音")
 
     search = [folder, company] if company else [folder]
     if raw.get("voice_clone") and not any((d / raw["voice_clone"]).exists() for d in search):

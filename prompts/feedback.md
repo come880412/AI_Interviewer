@@ -9,7 +9,7 @@ Act as a hiring committee member and evaluate the candidate. Write the report in
 3. **Question-by-question review.** For every main question the interviewer asked (group a question with its follow-ups), give:
    - a rating: good, partial, or needs work
    - what the answer did well and what it missed, in a sentence or two
-   - a reference answer in English that the candidate could actually say, written in natural spoken sentences, built only from the candidate's real experience in the resume and transcript. Never invent experience or numbers: where a real number or detail is needed but unknown, write a placeholder in square brackets, such as [X ms]. For pure knowledge questions, give the correct technical answer.
+   - a reference answer in {{interview_language}} (the language of the interview) that the candidate could actually say, written in natural spoken sentences, built only from the candidate's real experience in the resume and transcript. Never invent experience or numbers: where a real number or detail is needed but unknown, write a placeholder in square brackets, such as [X ms]. For pure knowledge questions, give the correct technical answer.
 4. **Follow-ups to prepare.** List the follow-up questions the candidate is likely to face in the real interview but has not prepared for yet.
 5. **Delivery.** Comment on answer length, structure, filler words, and whether answers led with the point. Use the timing statistics below where they help.
 6. **Verdict.** Give an overall verdict (hire / lean hire / lean no / no) and the single most important thing to fix.

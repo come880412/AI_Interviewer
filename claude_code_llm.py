@@ -99,7 +99,8 @@ class ClaudeCodeLLMService(LLMService):
 
     adapter_class = AnthropicLLMAdapter
 
-    def __init__(self, *, system_prompt: str, model: str = "claude-opus-5-5", cli_path: str | None = None, **kwargs):
+    def __init__(self, *, system_prompt: str, model: str = "claude-opus-5-5", cli_path: str | None = None,
+                 stall_line: str = "Sorry, give me just a second.", **kwargs):
         # Sampling and turn-completion settings don't apply to the CLI.
         unsupported = dict.fromkeys(
             ["system_instruction", "temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
@@ -107,6 +108,7 @@ class ClaudeCodeLLMService(LLMService):
         )
         super().__init__(settings=LLMSettings(model=model, **unsupported), **kwargs)
         self._system_prompt = system_prompt
+        self._stall_line = stall_line  # said aloud while a dead or stuck CLI is replaced
         self._model = model
         self._cli = cli_path or find_claude_cli()
         self._proc: asyncio.subprocess.Process | None = None
@@ -267,7 +269,7 @@ class ClaudeCodeLLMService(LLMService):
                 # conversation so far, and try once more.
                 logger.warning(f"{self}: {e}; restarting the CLI and retrying once")
                 if not self._spoke:
-                    await self.push_frame(LLMTextFrame("Sorry, give me just a second. "))
+                    await self.push_frame(LLMTextFrame(self._stall_line + " "))
                 await self._relaunch()
                 recovery = (
                     "[software note] The interview software restarted and you lost your memory of the conversation. "

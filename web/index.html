@@ -23,6 +23,8 @@
   .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
   .seg button:disabled { opacity: 0.4; }
   .mode-detail { display: grid; gap: 10px; font-size: 13px; color: var(--muted); }
+  .check { display: flex; gap: 8px; align-items: flex-start; color: var(--ink); cursor: pointer; }
+  .check input { margin: 2px 0 0; flex: none; }
   .two { display: grid; grid-template-columns: 1fr 96px; gap: 8px; }
   .latest { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 8px; }
   .latest-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; }
@@ -104,6 +106,7 @@
             </select>
           </div>
           <input type="text" id="drill-custom" placeholder="自訂主題，例如：epipolar geometry 與深度誤差" hidden aria-label="自訂主題">
+          <label class="check"><input type="checkbox" id="drill-coach"> 教練模式：每題答完馬上講評、示範更好的講法，再讓你重答一次</label>
           <span>跳過自我介紹，只針對這個主題由淺入深地問。</span>
         </div>
         <div class="mode-detail" id="mode-resume" hidden>
@@ -178,6 +181,9 @@
             <label class="field">難度
               <select id="w-difficulty"><option value="standard">standard</option><option value="tough">tough</option></select>
             </label>
+            <label class="field">面試語言
+              <select id="w-language"><option value="en">英文</option><option value="zh-TW">中文（台灣）</option></select>
+            </label>
           </div>
           <label class="field" id="w-jd-box">職缺描述（JD）<textarea id="w-jd" rows="8"></textarea></label>
           <label class="field">這一關的資訊（HR 的說明、面試官背景、你聽說的題型）<textarea id="w-notes" rows="5"></textarea></label>
@@ -233,7 +239,7 @@
 
   function current() { return data.interviews.find(function (i) { return i.name === state.interview; }); }
   function hasErrors(iv) { return iv.issues.some(function (i) { return i.level === "error"; }); }
-  function sessionLabel(s) { return s.mode === "drill" ? "專項：" + s.topic : "完整面試"; }
+  function sessionLabel(s) { return s.mode === "drill" ? (s.coach ? "教練：" : "專項：") + s.topic : "完整面試"; }
   // Transcripts worth continuing: no report yet and not running right now.
   function resumable(iv) { return iv.transcripts.filter(function (t) { return !t.has_feedback && !t.active; }); }
 
@@ -401,7 +407,7 @@
     var iv = current();
     var blocked = hasErrors(iv) || (state.mode === "resume" && !state.resume) || (state.mode === "drill" && !drillTopic());
     $("go").disabled = blocked;
-    $("go").textContent = state.mode === "resume" ? "前往面試（接續）" : state.mode === "drill" ? "前往面試（專項練習）" : "前往面試";
+    $("go").textContent = state.mode === "resume" ? "前往面試（接續）" : state.mode === "drill" ? ($("drill-coach").checked ? "前往面試（教練模式）" : "前往面試（專項練習）") : "前往面試";
     $("go-error").hidden = true;
     $("progress-link").href = "/progress?interview=" + encodeURIComponent(iv.name);
   }
@@ -429,6 +435,7 @@
   });
   $("drill-topic").addEventListener("change", function () { $("drill-custom").hidden = this.value !== "__custom"; renderGo(); });
   $("drill-custom").addEventListener("input", renderGo);
+  $("drill-coach").addEventListener("change", renderGo);
   $("resume-select").addEventListener("change", function () { state.resume = this.value; renderMode(); renderHistory(); });
 
   $("go").addEventListener("click", function () {
@@ -437,6 +444,7 @@
       body.mode = "drill";
       body.topic = drillTopic();
       body.minutes = parseInt($("drill-minutes").value, 10);
+      body.coach = $("drill-coach").checked;
     } else if (state.mode === "resume") {
       body.resume = state.resume;
     }
@@ -647,6 +655,7 @@
       interviewer_title: $("w-interviewer-title").value.trim(),
       duration_minutes: parseInt($("w-duration").value, 10) || 45,
       difficulty: $("w-difficulty").value,
+      interview_language: $("w-language").value,
       jd: c ? c.jd : $("w-jd").value,
       notes: $("w-notes").value,
     };
@@ -703,6 +712,7 @@
           state.resume = sel.resume;
         } else if (known && sel.mode === "drill") {
           state.mode = "drill";
+          $("drill-coach").checked = !!sel.coach;
         }
       }
       render();

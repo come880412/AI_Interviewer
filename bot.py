@@ -50,6 +50,7 @@ from pipecat.utils.text.base_text_filter import BaseTextFilter
 from pipecat.workers.runner import WorkerRunner
 
 import session_picker
+from chinese import tidy_spaces
 from claude_code_llm import ClaudeCodeLLMService
 from history import practice_history
 from interview_config import InterviewConfig, interview_name, pick_interview, validate
@@ -85,6 +86,8 @@ CANDIDATE_PAUSE_SECS = float(os.getenv("CANDIDATE_PAUSE_SECS", "0.8"))
 VOICE_GAIN_DB = float(os.getenv("VOICE_GAIN_DB", "10"))
 
 VOICE_LANGUAGES = {"en-us": Language.EN_US, "en-gb": Language.EN_GB}
+# Traditional characters and English terms in the prompt steer Whisper toward the same in its output.
+CHINESE_STT_PROMPT = "以下是一場中文技術面試的回答，夾雜英文術語，例如 GRU、MLP、INT8、latency。"
 # The interviewer ends its goodbye with this token (see prompts/interviewer.md); it is never spoken.
 END_TOKEN = re.compile(r"\[\[\s*END\s*\]\]")
 # After the goodbye, how long to wait for the audio to finish before hanging up anyway.
@@ -178,6 +181,31 @@ def time_checks(duration_min: int, drill: bool = False) -> list[tuple[float, str
     ]
 
 
+COACH_MODE = (
+    "\n\nCoach mode is on: the candidate wants feedback after every answer, so this overrides the rules below "
+    "about never teaching, coaching, hinting, praising, or judging, and about keeping turns to three sentences. "
+    "After each complete answer, step out of the interviewer role briefly and coach in plain speech, in about four "
+    "to six sentences: say what worked in one sentence, name the most important thing that was missing or wrong "
+    "(a technical error, a missing number or result, unclear ownership, no trade-off), then give a short model "
+    "version of the key part, using the candidate's own experience from the resume where it fits. Then ask them to "
+    "try that part again. After the retry, give one sentence on whether it improved and move on to the next "
+    "question; do not ask for a third attempt. If the candidate is stuck, give a hint first, and the answer only if "
+    "the hint does not help. When an answer is already solid, say so in one sentence and move on."
+)
+
+
+def language_rule(language: str) -> str:
+    """The language line of the interviewer prompt."""
+    if language == "zh-TW":
+        return (
+            "Conduct the interview in Mandarin Chinese, written in Traditional Chinese characters with the wording "
+            "used in Taiwan, never Simplified Chinese or mainland-only terms. Keep technical terms, product names and "
+            "acronyms in English the way Taiwanese engineers say them, for example GRU, INT8, latency, or trade-off. "
+            "If the candidate switches to English, continue in Chinese."
+        )
+    return "Conduct the interview in English. If the candidate switches languages, continue in English."
+
+
 def session_mode(session: dict, minutes: int) -> str:
     """The "Session mode" section of the interviewer prompt."""
     if session.get("mode") == "drill":
@@ -186,7 +214,10 @@ def session_mode(session: dict, minutes: int) -> str:
             "It replaces the interview structure below. Greet the candidate in one sentence and say you will focus "
             "on this topic today, skip self-introductions, then ask questions on this topic only, going from "
             "fundamentals to deeper follow-ups and connecting to the candidate's experience where it fits. Skip the "
-            "candidate's questions section. When time is up, close in one or two sentences."
+            "candidate's questions section. When time is up, close in one or two sentences. The whole session is one "
+            "topic, so the three-follow-up limit applies to each sub-question, not to the session: keep digging into "
+            "new angles of the topic until time is up."
+            + (COACH_MODE if session.get("coach") else "")
         )
     return f"This is a full mock interview of about {minutes} minutes. Follow the interview structure below."
 
@@ -221,7 +252,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         saved.elapsed_secs = min(saved.elapsed_secs, minutes * 60)
     title = f"Mock interview: {v.get('role_title')} ({v.get('round_name')})"
     if drill:
-        title += f", drill on {session.get('topic')}"
+        title += f", {'coached ' if session.get('coach') else ''}drill on {session.get('topic')}"
     transcript = Transcript(cfg.name, title, session=session, resume=saved)
     action = f"resuming at {transcript.prior_elapsed / 60:.0f} min" if saved else "new session"
     logger.info(f"Interview '{cfg.name}' ({action}, {'drill' if drill else 'full'}), transcript -> {transcript.path}")
@@ -230,6 +261,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         duration_minutes=str(minutes),
         session_mode=session_mode(session, minutes),
         practice_history=practice_history(cfg.name),
+        language_rule=language_rule(cfg.language),
     )
 
     end_reason: str | None = None  # "interviewer" (said goodbye) or "candidate" (ended from the web page)
@@ -268,7 +300,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     clock.on_stopped = on_bot_stopped
     end_filter = EndTokenFilter(interviewer_said_goodbye)
 
-    if STT_BACKEND == "parakeet":
+    if STT_BACKEND == "parakeet" and cfg.chinese:
+        logger.warning("Parakeet does not understand Chinese; using Whisper for this interview")
+    if STT_BACKEND == "parakeet" and not cfg.chinese:
         # Imported here so the Whisper-only setup does not need onnx-asr.
         from parakeet_stt import ParakeetSTTService
 
@@ -279,15 +313,28 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             compute_type=WHISPER_COMPUTE_TYPE,
             min_avg_logprob=WHISPER_MIN_AVG_LOGPROB,
             hotword_list=cfg.stt_hotwords,
+            chinese=cfg.chinese,
             settings=InterviewWhisperSTT.Settings(
                 model=WHISPER_MODEL,
-                language=Language.EN,
+                language=Language.ZH if cfg.chinese else Language.EN,
                 hotwords=" ".join(cfg.stt_hotwords) or None,
+                # The first answer has no conversation to use as the prompt; this one sets the script and style.
+                initial_prompt=CHINESE_STT_PROMPT if cfg.chinese else None,
             ),
         )
     audio_dir = transcript.path.with_name(transcript.path.name.replace("-transcript.md", "-audio"))
 
-    if cfg.voice_clone or cfg.pocket_voice:
+    if cfg.chinese:
+        # Imported here so English-only setups do not need misaki and the Chinese model.
+        from chinese_tts import DEFAULT_ZH_VOICE, ChineseKokoroTTSService
+
+        if cfg.voice_clone or cfg.pocket_voice:
+            logger.warning("Pocket TTS cannot speak Chinese; using the Kokoro Chinese voice instead")
+        tts = ChineseKokoroTTSService(
+            settings=ChineseKokoroTTSService.Settings(voice=cfg.voice if cfg.voice.startswith("z") else DEFAULT_ZH_VOICE),
+            text_filters=[end_filter],
+        )
+    elif cfg.voice_clone or cfg.pocket_voice:
         # Imported here because it pulls in torch, which slows startup when Pocket TTS is not used.
         from pipecat.services.pocket_tts.tts import PocketTTSService
 
@@ -322,7 +369,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             ),
         )
     else:
-        llm = ClaudeCodeLLMService(system_prompt=system_prompt, model=LLM_MODEL)
+        llm = ClaudeCodeLLMService(system_prompt=system_prompt, model=LLM_MODEL,
+                                   stall_line="不好意思，請稍等一下。" if cfg.chinese else "Sorry, give me just a second.")
 
     context = LLMContext()
     # VAD detects speech; the default turn strategy adds the local Smart Turn v3 model,
@@ -498,6 +546,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             save_wav(wav, pcm, stt.sample_rate or 16000)
             with (audio_dir / "answers.jsonl").open("a", encoding="utf-8") as f:
                 f.write(json.dumps({"file": wav.name, "live": live, "transcript": text}, ensure_ascii=False) + "\n")
+        text = tidy_spaces(text)
         if start is not None and stopped_at is not None:
             transcript.add("Candidate", text, start, stopped_at - start, pause_before)
         else:
@@ -547,7 +596,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         return
 
     # A finished session: the next Connect starts a new one with the same settings.
-    session_picker.selection = Selection(selection.interview, None, selection.mode, selection.topic, selection.minutes)
+    session_picker.selection = Selection(selection.interview, None, selection.mode, selection.topic, selection.minutes,
+                                         selection.coach)
     if AUTO_FEEDBACK and len(transcript.turns) >= 4:
         await session_picker.generate_report(selection.interview, transcript.path)
 

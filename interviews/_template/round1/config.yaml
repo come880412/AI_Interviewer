@@ -4,6 +4,7 @@ interviewer_title: Engineering Manager
 round_name: technical screen
 duration_minutes: 45             # 面試時長（分鐘），影響時間提醒和斷線接續的計時
 difficulty: standard            # standard 或 tough
+# interview_language: zh-TW     # 中文面試；不寫就是英文。中文會改用 Whisper 和 Kokoro 中文聲音（voice 用 zm_010 這類）
 
 # ===== 聲音（Kokoro 內建聲音）=====
 # 美式男聲: am_michael, am_adam, am_eric, am_liam, am_onyx, am_fenrir, am_puck, am_echo

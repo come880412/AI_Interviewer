@@ -19,6 +19,7 @@ from pipecat.services.whisper.stt import WhisperSTTService
 from pipecat.utils.time import time_now_iso8601
 from pipecat.utils.types import assert_given
 
+from chinese import chinese_punctuation, tidy_spaces, to_traditional
 from stt_common import TurnAudio, hotword_fixer
 
 # About 100 tokens of recent conversation. Whisper's prompt window is 223 tokens, shared with hotwords.
@@ -37,10 +38,14 @@ CONTEXT_COPY_MIN_WORDS = 6
 MIN_RMS = 60
 
 WORD = re.compile(r"[a-z0-9]+")
+# For copy detection Chinese characters count as words, since Chinese has no spaces between words.
+TOKEN = re.compile(r"[a-z0-9]+|[㐀-鿿豈-﫿]")
 # Credits from Whisper's subtitle training data; it emits these on silence with high confidence.
 SUBTITLE_CREDITS = re.compile(
     r"\b(subtitles?|transcription|translation|transcribed|captions?|captioning)\s+by\b"
-    r"|thanks? (you )?for watching|please subscribe|amara\.org",
+    r"|thanks? (you )?for watching|please subscribe|amara\.org"
+    # The Chinese ones: subtitle credits, "like and subscribe", "thanks for watching", streaming channel names.
+    r"|字幕由|字幕志[愿願]者|中文字幕|[点點][赞贊]|[订訂][阅閱][转轉]發|打[赏賞]|明[镜鏡]|[感谢謝]+[观觀]看|[独獨][播]",
     re.IGNORECASE,
 )
 
@@ -48,9 +53,11 @@ SUBTITLE_CREDITS = re.compile(
 class InterviewWhisperSTT(WhisperSTTService):
     """WhisperSTTService that carries conversation context across segments and filters hallucinations."""
 
-    def __init__(self, *, min_avg_logprob: float = DEFAULT_MIN_AVG_LOGPROB, hotword_list: list[str] | None = None, **kwargs):
+    def __init__(self, *, min_avg_logprob: float = DEFAULT_MIN_AVG_LOGPROB, hotword_list: list[str] | None = None,
+                 chinese: bool = False, **kwargs):
         super().__init__(**kwargs)
         self._min_avg_logprob = min_avg_logprob
+        self._chinese = chinese  # Mandarin: convert to Taiwan Traditional and join pieces without spaces
         self._context = ""
         self._hotword_seq = WORD.findall((assert_given(self._settings.hotwords) or "").lower())
         self._fix = hotword_fixer(hotword_list or [])
@@ -81,10 +88,10 @@ class InterviewWhisperSTT(WhisperSTTService):
         )
 
     def _copies_context(self, text: str) -> bool:
-        words = WORD.findall(text.lower())
+        words = TOKEN.findall(text.lower())
         if len(words) < CONTEXT_COPY_MIN_WORDS:
             return False
-        ctx = WORD.findall(self._context.lower())
+        ctx = TOKEN.findall(self._context.lower())
         ctx_grams = {tuple(ctx[i : i + 3]) for i in range(len(ctx) - 2)}
         grams = [tuple(words[i : i + 3]) for i in range(len(words) - 2)]
         return sum(g in ctx_grams for g in grams) / len(grams) >= CONTEXT_COPY_RATIO
@@ -142,7 +149,10 @@ class InterviewWhisperSTT(WhisperSTTService):
                 logger.info(f"Dropped Whisper segment ({reason}): [{segment.text.strip()}]")
             else:
                 kept.append(segment.text.strip())
-        text = self._fix(" ".join(kept))
+        text = " ".join(kept)
+        if self._chinese:
+            text = tidy_spaces(chinese_punctuation(to_traditional(text)))
+        text = self._fix(text)
 
         await self.stop_processing_metrics()
 

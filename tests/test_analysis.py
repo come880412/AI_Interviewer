@@ -84,3 +84,14 @@ def test_delivery_summary_truncates_long_question():
 def test_delivery_summary_zero_pause_with_missing_pause():
     turns = [I("Q1", 0, 1), C("first", 2, 5), I("Q2", 10, 1), C("second", 12, 5, pause=0.0)]
     assert "longest 0.0 s" in delivery_summary(turns)
+
+
+def test_speaking_rate_counts_chinese_characters():
+    turns = [
+        Turn("Interviewer", "請介紹一下你的專案。", 0, 5),
+        Turn("Candidate", "我做的是倉儲機器人的 CNN 偵測模型", 6, 12, pause=1.0),
+    ]
+    (a,) = answers(turns)
+    assert a.words == 15  # fourteen characters and "CNN"
+    summary = delivery_summary(turns)
+    assert "units per minute, counting each Chinese character and each English word as one" in summary

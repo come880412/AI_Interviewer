@@ -6,6 +6,7 @@ Round: {{round_name}}
 Interviewer: {{interviewer_name}}, {{interviewer_title}}
 Length: {{duration_minutes}} minutes
 Language for the rubric: {{feedback_language}}
+Language the interview is held in: {{interview_language}}
 
 Write each file between its tags, in this order:
 
@@ -22,7 +23,7 @@ About the interviewer: only what the notes say about them (background, what they
 </round_info>
 
 <question_bank>
-English. Group questions under a plain heading per part of the round (no Markdown symbols on headings), five to eight questions per part, each a "- " bullet. Ground them in the JD and the resume: name the candidate's actual projects and the company's actual products where possible.
+Written in the language the interview is held in, phrased the way the interviewer would ask them aloud (in Chinese, keep technical terms in English). Group questions under a plain heading per part of the round (no Markdown symbols on headings), five to eight questions per part, each a "- " bullet. Ground them in the JD and the resume: name the candidate's actual projects and the company's actual products where possible.
 </question_bank>
 
 <rubric>
