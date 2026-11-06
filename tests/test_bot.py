@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 import bot
-from transcript import Transcript
+from interviewer.transcript import Transcript
 
 
 def test_time_checks_full_interview():
@@ -48,7 +48,7 @@ def test_session_mode_coach():
 
 
 def test_selection_session_coach():
-    from session_picker import Selection
+    from interviewer.server import Selection
     assert Selection(".", mode="drill", topic="t", minutes=10).session() == {"mode": "drill", "topic": "t", "minutes": 10}
     assert Selection(".", mode="drill", topic="t", minutes=10, coach=True).session()["coach"] is True
     assert Selection(".", coach=True).session() == {"mode": "full"}
@@ -89,3 +89,12 @@ def test_language_rule():
     zh = bot.language_rule("zh-TW")
     assert zh.startswith("Conduct the interview in Mandarin Chinese")
     assert "Traditional Chinese" in zh and "never Simplified" in zh
+    ja = bot.language_rule("ja")
+    assert ja.startswith("Conduct the interview in Japanese.") and ja.endswith("continue in Japanese.")
+    assert "Brazilian Portuguese" in bot.language_rule("pt-BR")
+
+
+def test_every_other_language_has_a_kokoro_voice_service():
+    from interviewer.config import LANGUAGE_SPECS
+    # Mandarin and Japanese have their own services; every other language must be one Pipecat's Kokoro speaks.
+    assert set(LANGUAGE_SPECS) - {"en", "zh-TW", "ja"} == set(bot.KOKORO_LANGUAGES)

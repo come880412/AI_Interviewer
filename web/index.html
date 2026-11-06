@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>模擬面試</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%232f5bd3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 <style>
   /* Two columns: the start panel stays in view on the left, everything else lives in tabs on the right. */
@@ -18,7 +19,7 @@
   .field-group { display: grid; gap: 6px; }
   .start select, .start input[type="text"] { width: 100%; }
   .interview-meta { font-size: 13px; color: var(--muted); line-height: 1.5; }
-  .seg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 3px; }
+  .seg { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 3px; }
   .seg button { background: transparent; color: var(--muted); padding: 7px 4px; font-size: 13px; border-radius: 6px; }
   .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
   .seg button:disabled { opacity: 0.4; }
@@ -26,6 +27,16 @@
   .check { display: flex; gap: 8px; align-items: flex-start; color: var(--ink); cursor: pointer; }
   .check input { margin: 2px 0 0; flex: none; }
   .two { display: grid; grid-template-columns: 1fr 96px; gap: 8px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+  .checks .label { color: var(--ink); font-weight: 500; min-width: 48px; }
+  .checks input[type="number"] { width: 84px; }
+  .tag-box { display: flex; flex-wrap: wrap; gap: 6px; max-height: 168px; overflow-y: auto; padding: 2px; }
+  .tag-box label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 9px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; color: var(--ink); }
+  .tag-box label:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .tag-box input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .tag-box label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tag-box small { color: var(--muted); }
+  .linkish { background: none; color: var(--accent); padding: 0; font-weight: 400; font-size: 13px; text-decoration: underline; }
   .latest { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 8px; }
   .latest-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; }
   .area-scores { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-size: 13px; }
@@ -92,6 +103,7 @@
         <div class="seg" role="group" aria-label="練習方式">
           <button type="button" data-mode="full" aria-pressed="true">完整面試</button>
           <button type="button" data-mode="drill" aria-pressed="false">專項練習</button>
+          <button type="button" data-mode="coding" aria-pressed="false">Coding</button>
           <button type="button" data-mode="resume" aria-pressed="false">接續</button>
         </div>
         <div class="mode-detail" id="mode-full"></div>
@@ -109,6 +121,50 @@
           <label class="check"><input type="checkbox" id="drill-coach"> 教練模式：每題答完馬上講評、示範更好的講法，再讓你重答一次</label>
           <span>跳過自我介紹，只針對這個主題由淺入深地問。</span>
         </div>
+        <div class="mode-detail" id="mode-coding" hidden>
+          <div class="two">
+            <select id="coding-language" aria-label="程式語言">
+              <option value="python">Python</option>
+              <option value="cpp">C++</option>
+            </select>
+            <select id="coding-minutes" aria-label="面試時間">
+              <option value="15">15 分鐘（一題）</option>
+              <option value="30">30 分鐘</option>
+              <option value="45" selected>45 分鐘</option>
+              <option value="60">60 分鐘</option>
+            </select>
+          </div>
+          <select id="coding-statement" aria-label="題目呈現方式">
+            <option value="interview">面試風格：題目只寫大概，限制和邊界情況要自己問</option>
+            <option value="leetcode">LeetCode 原題：完整題目、範例和限制</option>
+          </select>
+          <div class="checks" role="group" aria-label="難度">
+            <span class="label">難度</span>
+            <label class="check"><input type="checkbox" name="difficulty" value="easy"> Easy</label>
+            <label class="check"><input type="checkbox" name="difficulty" value="medium" checked> Medium</label>
+            <label class="check"><input type="checkbox" name="difficulty" value="hard" checked> Hard</label>
+          </div>
+          <label class="check"><input type="checkbox" id="interview-only" checked> 只出面試常見題</label>
+          <span>只出考演算法、資料結構，而且評價好的題目（好評率 75% 以上）。排除腦筋急轉彎、博弈、數論、組合數學、機率、幾何、網路流等競賽才考的題型，以及單純照題意模擬的題目。</span>
+          <div class="checks" role="group" aria-label="Rating 範圍">
+            <span class="label">Rating</span>
+            <input type="number" id="rating-min" min="0" max="4000" step="50" placeholder="下限" aria-label="Rating 下限">
+            <span>–</span>
+            <input type="number" id="rating-max" min="0" max="4000" step="50" placeholder="上限" aria-label="Rating 上限">
+          </div>
+          <span id="rating-hint">選填。Rating 只有週賽、雙週賽的題目才有；填了就只出有 rating 的題目。</span>
+          <div class="checks" role="group" aria-label="題型">
+            <span class="label">題型</span><span id="tags-summary">不限</span>
+            <button type="button" class="linkish" id="tags-clear" hidden>清除</button>
+          </div>
+          <div class="checks">
+            <input type="text" id="tag-search" placeholder="搜尋題型，例如 graph" aria-label="搜尋題型">
+            <button type="button" class="linkish" id="tags-more" hidden></button>
+          </div>
+          <div class="tag-box" id="tag-box"><span>載入 LeetCode 題目清單…</span></div>
+          <div id="coding-match" aria-live="polite"></div>
+          <span>題目從 LeetCode 抓取。開始後打開「共用筆記板」：題目顯示在那裡，你在旁邊寫程式、邊寫邊講。卡住時面試官會給提示；時間夠的話會出第二題。面試風格的題目由 Claude 改寫，每題第一次使用時要多等十秒左右。</span>
+        </div>
         <div class="mode-detail" id="mode-resume" hidden>
           <select id="resume-select" aria-label="要接續的逐字稿"></select>
           <span id="resume-hint"></span>
@@ -119,7 +175,8 @@
 
       <div class="field-group">
         <button type="button" class="go" id="go" disabled>前往面試</button>
-        <span class="error" id="go-error" hidden></span>
+        <span class="meta" id="go-hint" hidden></span>
+        <span class="error" id="go-error" role="alert" hidden></span>
       </div>
     </section>
 
@@ -128,6 +185,7 @@
       <div class="tabs" role="tablist">
         <button type="button" role="tab" id="tab-history" aria-selected="true" aria-controls="panel-history">練習紀錄</button>
         <button type="button" role="tab" id="tab-resume" aria-selected="false" aria-controls="panel-resume">履歷</button>
+        <button type="button" role="tab" id="tab-edit" aria-selected="false" aria-controls="panel-edit">編輯這一關</button>
         <button type="button" role="tab" id="tab-setup" aria-selected="false" aria-controls="panel-setup">新增公司或關卡</button>
       </div>
 
@@ -162,6 +220,23 @@
         </div>
       </div>
 
+      <div role="tabpanel" id="panel-edit" aria-labelledby="tab-edit" hidden>
+        <div class="card">
+          <p class="meta" style="margin:0" id="edit-current"></p>
+          <label class="field">檔案
+            <select id="edit-file"></select>
+          </label>
+          <p class="meta" style="margin:0" id="edit-hint"></p>
+          <textarea id="edit-text" class="code" rows="18" spellcheck="false" aria-label="檔案內容"></textarea>
+          <div class="actions">
+            <button type="button" id="edit-save">儲存</button>
+            <button type="button" class="secondary" id="edit-revert">放棄修改</button>
+            <span class="status" id="edit-status" role="status"></span>
+          </div>
+          <ul class="issues" id="edit-issues" hidden></ul>
+        </div>
+      </div>
+
       <div role="tabpanel" id="panel-setup" aria-labelledby="tab-setup" hidden>
         <div class="card">
           <p class="meta" style="margin:0">貼上 JD 和你知道的這一關資訊，讓 Claude 起草題庫、評分標準和面試官設定。</p>
@@ -171,6 +246,13 @@
           <div class="grid2" id="w-new-company">
             <label class="field">公司名稱<input type="text" id="w-company-name" placeholder="Acme"></label>
             <label class="field">職缺名稱<input type="text" id="w-role" placeholder="Computer Vision Engineer"></label>
+            <label class="field">回饋報告語言
+              <select id="w-feedback-language">
+                <option value="Traditional Chinese (Taiwan)">繁體中文</option><option value="English">English</option>
+                <option value="Japanese">日本語</option><option value="Spanish">Español</option><option value="French">Français</option>
+                <option value="Italian">Italiano</option><option value="Brazilian Portuguese">Português (Brasil)</option><option value="Hindi">हिन्दी</option>
+              </select>
+            </label>
           </div>
           <div class="grid2">
             <label class="field">關卡名稱<input type="text" id="w-round" placeholder="technical screen"></label>
@@ -182,7 +264,20 @@
               <select id="w-difficulty"><option value="standard">standard</option><option value="tough">tough</option></select>
             </label>
             <label class="field">面試語言
-              <select id="w-language"><option value="en">英文</option><option value="zh-TW">中文（台灣）</option></select>
+              <select id="w-language">
+                <option value="en">英文</option><option value="zh-TW">中文（台灣）</option>
+                <option value="ja">日本語</option><option value="es">Español</option><option value="fr">Français</option>
+                <option value="it">Italiano</option><option value="pt-BR">Português (Brasil)</option><option value="hi">हिन्दी</option>
+              </select>
+            </label>
+            <label class="field">面試官的聲音
+              <select id="w-voice"></select>
+            </label>
+            <label class="field">虛擬面試官的外觀
+              <select id="w-avatar">
+                <option value="david">David（男性外觀）</option>
+                <option value="brunette">Brunette（女性外觀）</option>
+              </select>
             </label>
           </div>
           <label class="field" id="w-jd-box">職缺描述（JD）<textarea id="w-jd" rows="8"></textarea></label>
@@ -214,7 +309,7 @@
 <script>
 (function () {
   var data = null;
-  // mode: "full", "drill" or "resume"; resume holds the transcript file name to continue.
+  // mode: "full", "drill", "coding" or "resume"; resume holds the transcript file name to continue.
   var state = { interview: null, mode: "full", resume: null };
   var lastStatus = "";
   var verdicts = { "hire": "錄取", "lean hire": "傾向錄取", "lean no": "傾向不錄取", "no": "不錄取" };
@@ -239,20 +334,33 @@
 
   function current() { return data.interviews.find(function (i) { return i.name === state.interview; }); }
   function hasErrors(iv) { return iv.issues.some(function (i) { return i.level === "error"; }); }
-  function sessionLabel(s) { return s.mode === "drill" ? (s.coach ? "教練：" : "專項：") + s.topic : "完整面試"; }
+  var languageNames = { python: "Python", cpp: "C++" };
+  function sessionLabel(s) {
+    if (s.mode === "coding") {
+      var parts = [languageNames[s.language] || s.language,
+                   (s.difficulties || []).map(function (d) { return d.charAt(0).toUpperCase() + d.slice(1); }).join("/")];
+      if ((s.tags || []).length) parts.push(s.tags.join(", "));
+      if (s.rating) parts.push("rating " + (s.rating[0] == null ? "" : s.rating[0]) + "–" + (s.rating[1] == null ? "" : s.rating[1]));
+      if (s.interview_only === false) parts.push("不限面試常見題");
+      if (s.statement !== "interview") parts.push("LeetCode 原題");
+      return "Coding：" + parts.join(" · ");
+    }
+    return s.mode === "drill" ? (s.coach ? "教練：" : "專項：") + s.topic : "完整面試";
+  }
   // Transcripts worth continuing: no report yet and not running right now.
   function resumable(iv) { return iv.transcripts.filter(function (t) { return !t.has_feedback && !t.active; }); }
 
   // ----- Tabs -----
-  var tabs = ["history", "resume", "setup"];
-  function showTab(name) {
+  var tabs = ["history", "resume", "edit", "setup"];
+  function showTab(name, remember) {
     tabs.forEach(function (t) {
       $("tab-" + t).setAttribute("aria-selected", String(t === name));
       $("panel-" + t).hidden = t !== name;
     });
-    try { localStorage.setItem("setup-tab", name); } catch (e) {}
+    if (remember !== false) { try { localStorage.setItem("setup-tab", name); } catch (e) {} }
   }
   tabs.forEach(function (t) { $("tab-" + t).addEventListener("click", function () { showTab(t); }); });
+  $("tab-edit").addEventListener("click", function () { loadRoundFiles(); });
   try { if (tabs.indexOf(localStorage.getItem("setup-tab")) >= 0) showTab(localStorage.getItem("setup-tab")); } catch (e) {}
 
   // ----- Active session -----
@@ -331,16 +439,19 @@
       b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode));
       if (b.dataset.mode === "resume") {
         b.disabled = !iv.transcripts.some(function (t) { return !t.active; });
+        b.title = b.disabled ? "還沒有可以接續的面試紀錄" : "";
       }
     });
     $("mode-full").hidden = state.mode !== "full";
     $("mode-drill").hidden = state.mode !== "drill";
+    $("mode-coding").hidden = state.mode !== "coding";
     $("mode-resume").hidden = state.mode !== "resume";
+    renderCoding();
     $("mode-full").textContent = "從開場、經歷、技術題到你的提問，約 " + iv.duration + " 分鐘。";
 
     // Drill topics: what the last reports suggested first, then the rubric areas, then a custom topic.
     var select = $("drill-topic");
-    var keep = select.value;
+    var keep = select.value || state.wantTopic;
     select.replaceChildren();
     var suggested = iv.suggested_topics || [];
     if (suggested.length) {
@@ -357,6 +468,8 @@
     var custom = el("option", null, "自訂主題…"); custom.value = "__custom";
     select.append(custom);
     if (keep && Array.from(select.options).some(function (o) { return o.value === keep; })) select.value = keep;
+    else if (state.wantTopic) { select.value = "__custom"; $("drill-custom").value = state.wantTopic; }
+    state.wantTopic = null;
     $("drill-custom").hidden = select.value !== "__custom";
 
     // Transcripts to continue: unfinished ones first.
@@ -382,6 +495,114 @@
     return v === "__custom" ? $("drill-custom").value.trim() : v;
   }
 
+  // ----- Coding options: loaded from LeetCode the first time the Coding mode is opened -----
+  var coding = { options: null, loading: false, error: null, match: null, matchTimer: null, wantTags: [], showAll: false, defaultsFor: null };
+  var COMMON_TAGS = 36;  // LeetCode has about 170 tags; the rest are behind "show all" or the search box
+
+  function filterTags() {
+    var q = $("tag-search").value.trim().toLowerCase();
+    var labels = Array.from(document.querySelectorAll("#tag-box label"));
+    labels.forEach(function (label, i) {
+      var input = label.querySelector("input");
+      var hit = q ? (input.dataset.name.toLowerCase().indexOf(q) >= 0 || input.value.indexOf(q) >= 0) : (coding.showAll || i < COMMON_TAGS);
+      label.hidden = !(hit || input.checked);
+    });
+    $("tags-more").hidden = !!q || labels.length <= COMMON_TAGS;
+    $("tags-more").textContent = coding.showAll ? "只顯示常見題型" : "顯示全部 " + labels.length + " 個題型";
+  }
+
+  function codingFilters() {
+    var num = function (id) { var v = $(id).value.trim(); return v === "" ? null : parseInt(v, 10); };
+    return {
+      difficulties: Array.from(document.querySelectorAll('input[name="difficulty"]:checked')).map(function (i) { return i.value; }),
+      tags: Array.from(document.querySelectorAll('#tag-box input:checked')).map(function (i) { return i.value; }),
+      rating_min: num("rating-min"),
+      rating_max: num("rating-max"),
+      interview_only: $("interview-only").checked,
+    };
+  }
+
+  function loadCodingOptions() {
+    if (coding.options || coding.loading) return;
+    coding.loading = true;
+    api("/api/coding/options").then(function (o) {
+      coding.options = o;
+      coding.error = null;
+      var box = $("tag-box");
+      box.replaceChildren();
+      o.tags.forEach(function (t) {
+        var label = el("label");
+        var input = el("input");
+        input.type = "checkbox";
+        input.value = t.slug;
+        input.dataset.name = t.name;
+        input.checked = coding.wantTags.indexOf(t.slug) >= 0;
+        label.append(input, document.createTextNode(t.name + " "), el("small", null, String(t.count)));
+        box.append(label);
+      });
+      filterTags();
+      if (o.rating) $("rating-hint").textContent = "選填。Rating 只有週賽、雙週賽的題目才有（" + o.rating.count + " 題，範圍 " + Math.round(o.rating.min) + "–" + Math.round(o.rating.max) + "）；填了就只出有 rating 的題目。";
+    }).catch(function (err) {
+      coding.error = "抓不到 LeetCode 題目清單：" + err.message;
+      $("tag-box").replaceChildren(el("span", "error", coding.error));
+    }).finally(function () {
+      coding.loading = false;
+      renderCoding();
+    });
+  }
+
+  // The coding filters from a saved selection, or a round's defaults (config.yaml "coding:").
+  function applyCodingSettings(s) {
+    if (s.language) $("coding-language").value = s.language;
+    if (s.minutes && $("coding-minutes").querySelector('option[value="' + s.minutes + '"]')) $("coding-minutes").value = String(s.minutes);
+    if (s.difficulties) {
+      document.querySelectorAll('input[name="difficulty"]').forEach(function (i) { i.checked = s.difficulties.indexOf(i.value) >= 0; });
+    }
+    if (s.tags) {
+      coding.wantTags = s.tags;
+      document.querySelectorAll("#tag-box input").forEach(function (i) { i.checked = s.tags.indexOf(i.value) >= 0; });
+    }
+    if (s.interview_only != null) $("interview-only").checked = s.interview_only !== false;
+    if (s.statement) $("coding-statement").value = s.statement;
+    if (s.rating) {
+      $("rating-min").value = s.rating[0] == null ? "" : s.rating[0];
+      $("rating-max").value = s.rating[1] == null ? "" : s.rating[1];
+    }
+  }
+
+  function renderCoding() {
+    if (state.mode !== "coding") return;
+    // Each round's own defaults apply the first time its coding filters are shown.
+    var iv = current();
+    if (coding.defaultsFor !== iv.name) {
+      coding.defaultsFor = iv.name;
+      if (iv.coding_defaults && Object.keys(iv.coding_defaults).length) applyCodingSettings(iv.coding_defaults);
+    }
+    loadCodingOptions();
+    var f = codingFilters();
+    var names = Array.from(document.querySelectorAll("#tag-box input:checked")).map(function (i) { return i.dataset.name; });
+    $("tags-summary").textContent = names.length ? "任一符合：" + names.join("、") : "不限";
+    $("tags-clear").hidden = !names.length;
+    clearTimeout(coding.matchTimer);
+    if (!coding.options) { renderGo(); return; }
+    // Count the matches once the filters stop changing.
+    coding.matchTimer = setTimeout(function () {
+      api("/api/coding/match", f).then(function (m) {
+        coding.match = m;
+        var box = $("coding-match");
+        box.className = m.count ? "" : "error";
+        box.textContent = m.count
+          ? "符合條件：" + m.count + " 題，例如 " + m.sample.map(function (s) { return s.title + (s.rating ? "（" + s.rating + "）" : ""); }).join("、")
+          : "沒有符合條件的題目，請放寬難度、題型、rating 範圍，或取消「只出面試常見題」。";
+      }).catch(function (err) {
+        coding.match = { count: 0 };
+        $("coding-match").className = "error";
+        $("coding-match").textContent = err.message;
+      }).finally(renderGo);
+    }, 300);
+    renderGo();
+  }
+
   function renderLatest() {
     var iv = current();
     var box = $("latest");
@@ -403,11 +624,27 @@
     box.append(grid);
   }
 
+  function goBlockedReason(iv) {
+    if (hasErrors(iv)) return "這個面試的設定有錯，請看上方的說明。";
+    if (state.mode === "resume" && !state.resume) return "沒有可以接續的面試紀錄。";
+    if (state.mode === "drill" && !drillTopic()) return "請選一個練習主題，或輸入自訂主題。";
+    if (state.mode === "coding") {
+      if (!codingFilters().difficulties.length) return "請至少勾一個難度。";
+      if (!coding.options) return coding.error ? "" : "正在從 LeetCode 載入題型…";
+      if (coding.match && !coding.match.count) return "沒有符合條件的題目，請放寬條件。";
+    }
+    return "";
+  }
+
   function renderGo() {
     var iv = current();
-    var blocked = hasErrors(iv) || (state.mode === "resume" && !state.resume) || (state.mode === "drill" && !drillTopic());
+    var reason = goBlockedReason(iv);
+    var blocked = !!reason || (state.mode === "coding" && !coding.options);
     $("go").disabled = blocked;
-    $("go").textContent = state.mode === "resume" ? "前往面試（接續）" : state.mode === "drill" ? ($("drill-coach").checked ? "前往面試（教練模式）" : "前往面試（專項練習）") : "前往面試";
+    $("go-hint").textContent = reason;
+    $("go-hint").hidden = !reason;
+    $("go").textContent = state.mode === "resume" ? "前往面試（接續）" : state.mode === "drill" ? ($("drill-coach").checked ? "前往面試（教練模式）" : "前往面試（專項練習）")
+      : state.mode === "coding" ? "前往面試（Coding）" : "前往面試";
     $("go-error").hidden = true;
     $("progress-link").href = "/progress?interview=" + encodeURIComponent(iv.name);
   }
@@ -432,10 +669,20 @@
     state.mode = "full";
     state.resume = null;
     render();
+    if (!$("panel-edit").hidden) loadRoundFiles();
   });
   $("drill-topic").addEventListener("change", function () { $("drill-custom").hidden = this.value !== "__custom"; renderGo(); });
   $("drill-custom").addEventListener("input", renderGo);
   $("drill-coach").addEventListener("change", renderGo);
+  $("mode-coding").addEventListener("change", renderCoding);
+  $("mode-coding").addEventListener("input", function (e) { if (e.target.type === "number") renderCoding(); });
+  $("tags-clear").addEventListener("click", function () {
+    document.querySelectorAll("#tag-box input:checked").forEach(function (i) { i.checked = false; });
+    filterTags();
+    renderCoding();
+  });
+  $("tag-search").addEventListener("input", function (e) { e.stopPropagation(); filterTags(); });
+  $("tags-more").addEventListener("click", function () { coding.showAll = !coding.showAll; filterTags(); });
   $("resume-select").addEventListener("change", function () { state.resume = this.value; renderMode(); renderHistory(); });
 
   $("go").addEventListener("click", function () {
@@ -445,16 +692,28 @@
       body.topic = drillTopic();
       body.minutes = parseInt($("drill-minutes").value, 10);
       body.coach = $("drill-coach").checked;
+    } else if (state.mode === "coding") {
+      var f = codingFilters();
+      body.mode = "coding";
+      body.language = $("coding-language").value;
+      body.minutes = parseInt($("coding-minutes").value, 10);
+      body.difficulties = f.difficulties;
+      body.tags = f.tags;
+      body.rating_min = f.rating_min;
+      body.rating_max = f.rating_max;
+      body.interview_only = f.interview_only;
+      body.statement = $("coding-statement").value;
     } else if (state.mode === "resume") {
       body.resume = state.resume;
     }
     $("go").disabled = true;
+    if (state.mode === "coding") $("go").textContent = $("coding-statement").value === "interview" ? "挑題、準備題目中…" : "挑題中…";
     api("/api/selection", body).then(function () {
       location.href = "/interview";
     }).catch(function (err) {
+      renderGo();
       $("go-error").textContent = "沒有設定成功：" + err.message;
       $("go-error").hidden = false;
-      $("go").disabled = false;
     });
   });
 
@@ -599,7 +858,7 @@
       setResumeStatus("");
       $("resume-target").value = target;
       openEditor(j.text);
-    });
+    }).catch(function (err) { setResumeStatus(err.message, "error"); });
   });
   $("resume-cancel").addEventListener("click", function () { $("resume-editor").hidden = true; setResumeStatus(""); });
   $("resume-save").addEventListener("click", function () {
@@ -639,6 +898,28 @@
     });
   }
   $("w-company").addEventListener("change", renderWizardCompany);
+
+  // Voices the wizard offers (config.yaml takes any Kokoro voice); the list follows the interview language.
+  var WIZARD_VOICES = {
+    en: [["am_michael", "美式男聲 Michael"], ["am_adam", "美式男聲 Adam"], ["am_eric", "美式男聲 Eric"],
+         ["af_heart", "美式女聲 Heart"], ["af_bella", "美式女聲 Bella"], ["af_nicole", "美式女聲 Nicole"],
+         ["bm_george", "英式男聲 George"], ["bm_lewis", "英式男聲 Lewis"], ["bf_emma", "英式女聲 Emma"], ["bf_isabella", "英式女聲 Isabella"]],
+    "zh-TW": [["zm_010", "中文男聲 010"], ["zm_009", "中文男聲 009"], ["zf_001", "中文女聲 001"], ["zf_002", "中文女聲 002"]],
+    ja: [["jm_kumo", "男聲 Kumo"], ["jf_alpha", "女聲 Alpha"], ["jf_gongitsune", "女聲 Gongitsune"], ["jf_nezumi", "女聲 Nezumi"]],
+    es: [["em_alex", "男聲 Alex"], ["ef_dora", "女聲 Dora"]],
+    fr: [["ff_siwis", "女聲 Siwis（Kokoro 只有這一個法語聲音）"]],
+    it: [["im_nicola", "男聲 Nicola"], ["if_sara", "女聲 Sara"]],
+    "pt-BR": [["pm_alex", "男聲 Alex"], ["pf_dora", "女聲 Dora"]],
+    hi: [["hm_omega", "男聲 Omega"], ["hm_psi", "男聲 Psi"], ["hf_alpha", "女聲 Alpha"], ["hf_beta", "女聲 Beta"]],
+  };
+  function renderWizardVoices() {
+    var select = $("w-voice");
+    select.replaceChildren();
+    WIZARD_VOICES[$("w-language").value].forEach(function (v) { var o = el("option", null, v[1]); o.value = v[0]; select.append(o); });
+  }
+  $("w-language").addEventListener("change", renderWizardVoices);
+  renderWizardVoices();
+  if (!/^zh/i.test(navigator.language || "")) $("w-feedback-language").value = "English";
   $("w-round").addEventListener("input", function () {
     $("w-round-slug").placeholder = this.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tech";
   });
@@ -648,7 +929,7 @@
       company_slug: c ? c.slug : "",
       company: c ? c.company : $("w-company-name").value.trim(),
       role_title: c ? c.role_title : $("w-role").value.trim(),
-      feedback_language: c ? c.feedback_language : "Traditional Chinese (Taiwan)",
+      feedback_language: c ? c.feedback_language : $("w-feedback-language").value,
       round_name: $("w-round").value.trim(),
       round_slug: $("w-round-slug").value.trim() || $("w-round-slug").placeholder,
       interviewer_name: $("w-interviewer").value.trim(),
@@ -656,6 +937,8 @@
       duration_minutes: parseInt($("w-duration").value, 10) || 45,
       difficulty: $("w-difficulty").value,
       interview_language: $("w-language").value,
+      voice: $("w-voice").value,
+      avatar: $("w-avatar").value,
       jd: c ? c.jd : $("w-jd").value,
       notes: $("w-notes").value,
     };
@@ -694,13 +977,106 @@
     }).finally(function () { btn.disabled = false; });
   });
 
+  // ----- Editing the current round's files -----
+  var FILE_LABELS = {
+    "config.yaml": "這一關的設定（面試官、時長、難度、聲音、頭像、coding 預設…）",
+    "round_info.md": "這關考什麼、流程、面試官風格",
+    "question_bank.md": "題庫",
+    "rubric.md": "評分標準（每個 ## 標題是一個評分面向）",
+    "jd.md": "職缺描述（JD）",
+    "company_info.md": "公司資訊（回答你的提問時用）",
+    "company.yaml": "公司設定（這家公司每一關共用）",
+    "prompts/interviewer.md": "進階：面試官的行為規則",
+    "prompts/feedback.md": "進階：回饋報告的寫法",
+    "prompts/coding_rubric.md": "進階：Coding 面試的評分標準",
+  };
+  var editing = { interview: null, files: [], drafts: {} };
+
+  function loadRoundFiles() {
+    if (!state.interview) return;
+    var interview = state.interview;
+    $("edit-current").textContent = "正在編輯：" + interview;
+    return api("/api/round-files?interview=" + encodeURIComponent(interview)).then(function (j) {
+      var keep = editing.interview === interview ? $("edit-file").value : null;
+      editing = { interview: interview, files: j.files, drafts: {} };
+      var select = $("edit-file");
+      select.replaceChildren();
+      j.files.forEach(function (f) {
+        var o = el("option", null, (FILE_LABELS[f.name] || f.name) + " · " + f.name + (f.exists ? "" : "（還沒有）"));
+        o.value = f.name;
+        select.append(o);
+      });
+      if (keep && j.files.some(function (f) { return f.name === keep; })) select.value = keep;
+      showRoundFile();
+    }).catch(function (err) { setEditStatus(err.message, "error"); });
+  }
+
+  function currentRoundFile() {
+    var name = $("edit-file").value;
+    return editing.files.find(function (f) { return f.name === name; });
+  }
+
+  function showRoundFile() {
+    var f = currentRoundFile();
+    if (!f) return;
+    $("edit-text").value = editing.drafts[f.name] != null ? editing.drafts[f.name] : f.text;
+    var hint = f.path + "。";
+    if (f.level === "company") hint += "這是公司層級的檔案，這家公司的每一關都會用到。";
+    if (f.name.indexOf("prompts/") === 0) {
+      hint += f.exists ? "這一關用自己的版本；清空再儲存就改回共用版本。"
+        : "目前用的是共用版本（顯示在下面）。儲存後只有這一關會改用你修改的版本。";
+    } else if (!f.exists) {
+      hint += "還沒有這個檔案，儲存後會建立。";
+    }
+    $("edit-hint").textContent = hint;
+    setEditStatus("");
+    $("edit-issues").hidden = true;
+  }
+
+  function setEditStatus(text, cls) {
+    $("edit-status").textContent = text;
+    $("edit-status").className = "status" + (cls ? " " + cls : "");
+  }
+
+  $("edit-file").addEventListener("change", showRoundFile);
+  $("edit-text").addEventListener("input", function () {
+    var f = currentRoundFile();
+    if (f) editing.drafts[f.name] = this.value;  // switching files keeps unsaved edits
+  });
+  $("edit-revert").addEventListener("click", function () {
+    var f = currentRoundFile();
+    if (f) { delete editing.drafts[f.name]; showRoundFile(); }
+  });
+  $("edit-save").addEventListener("click", function () {
+    var f = currentRoundFile();
+    if (!f) return;
+    var btn = this;
+    btn.disabled = true;
+    api("/api/round-files", { interview: editing.interview, name: f.name, text: $("edit-text").value }).then(function (j) {
+      delete editing.drafts[f.name];
+      // Reload the interview list (names and setup problems may have changed) and the files, then report.
+      return Promise.all([load(), loadRoundFiles()]).then(function () { return j; });
+    }).then(function (j) {
+      setEditStatus("已儲存，舊版本備份在 profile/backups/。下一場面試開始時生效。", "ok");
+      var ul = $("edit-issues");
+      ul.replaceChildren();
+      j.issues.forEach(function (i) { ul.append(el("li", i.level, i.message)); });
+      ul.hidden = !j.issues.length;
+    }).catch(function (err) {
+      setEditStatus(err.message, "error");
+    }).finally(function () { btn.disabled = false; });
+  });
+
   // ----- Loading and refreshing -----
   function load() {
     return api("/api/interviews").then(function (j) {
       data = j;
       if (!data.interviews.length) {
-        $("interview-meta").textContent = "interviews/ 裡沒有面試。到右邊「新增公司或關卡」建立一個。";
-        showTab("setup");
+        $("interview-meta").textContent = "還沒有任何面試。在右邊「新增公司或關卡」貼上 JD 建立一個，或把 interviews/_template 複製成自己的資料夾。";
+        var select = $("interview-select");
+        var add = el("option", null, "＋ 新增公司或關卡…"); add.value = "__new";
+        select.replaceChildren(add);
+        showTab("setup", false);
         return;
       }
       if (!state.interview || !current()) {
@@ -713,9 +1089,18 @@
         } else if (known && sel.mode === "drill") {
           state.mode = "drill";
           $("drill-coach").checked = !!sel.coach;
+          if (sel.minutes && $("drill-minutes").querySelector('option[value="' + sel.minutes + '"]')) $("drill-minutes").value = String(sel.minutes);
+          state.wantTopic = sel.topic || null;
+        } else if (known && sel.mode === "coding") {
+          // Bring back the last coding filters; the tags are checked once the tag list has loaded.
+          state.mode = "coding";
+          applyCodingSettings({ language: sel.language, minutes: sel.minutes, difficulties: sel.difficulties || [],
+            tags: sel.tags || [], interview_only: sel.interview_only, statement: sel.statement, rating: sel.rating });
+          coding.defaultsFor = sel.interview;  // what you chose last time wins over the round's defaults
         }
       }
       render();
+      if (!$("panel-edit").hidden && editing.interview !== state.interview) loadRoundFiles();
     });
   }
 
@@ -733,7 +1118,13 @@
     }).catch(function () {}).finally(function () { setTimeout(poll, 4000); });
   }
 
-  load().then(poll).catch(function (err) { $("interview-meta").textContent = "讀取面試清單失敗：" + err.message; });
+  function start() {
+    load().then(poll).catch(function (err) {
+      $("interview-meta").textContent = "讀取面試清單失敗：" + (err.message === "Failed to fetch" ? "連不上伺服器，bot.py 還在執行嗎？" : err.message) + "（5 秒後重試）";
+      setTimeout(start, 5000);
+    });
+  }
+  start();
   loadCompanies().catch(function () {});
 })();
 </script>

@@ -1,16 +1,16 @@
-# 評分標準：每個 ## 標題是一個評分面向，回饋報告會照這些名稱打 1–5 分，練習進度頁也用它們畫趨勢。
+# Rubric: each ## heading is one scored area. The report scores these areas 1–5 by name, and the progress page charts them.
 
-## 經歷深挖
-- 5：講出自己親手做的部分、具體數字和取捨理由，追問細節也答得出來。
-- 3：有專案和數字，但個人貢獻或理由要靠追問才出來。
-- 1：說不清自己做了什麼，沒有數字。
+## Experience deep dive
+- 5: Says what they built themselves, with concrete numbers and the reasons for their trade-offs; answers detailed follow-ups.
+- 3: Has projects and numbers, but their own part or the reasons come out only when asked.
+- 1: Can't say clearly what they did; no numbers.
 
-## 技術能力
-- 5：核心概念答得正確並能推導，不確定時會推理。
-- 3：方向正確，但有一兩處細節錯誤。
-- 1：基礎概念不清楚。
+## Technical skills
+- 5: Core concepts correct and derived; reasons it out when unsure.
+- 3: Right direction, with one or two wrong details.
+- 1: The basics are not clear.
 
-## 溝通與行為
-- 5：先講結論，結構清楚，用 STAR 講出具體結果。
-- 3：內容有，但結構或結果不夠清楚。
-- 1：回答空泛或離題。
+## Communication and behavior
+- 5: Leads with the answer, clear structure, specific results (STAR).
+- 3: The content is there, but the structure or results are unclear.
+- 1: Vague or off-topic answers.

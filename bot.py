@@ -9,10 +9,10 @@ import json
 import os
 import re
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-from dotenv import load_dotenv
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -49,27 +49,30 @@ from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.utils.text.base_text_filter import BaseTextFilter
 from pipecat.workers.runner import WorkerRunner
 
-import session_picker
-from chinese import tidy_spaces
-from claude_code_llm import ClaudeCodeLLMService
-from history import practice_history
-from interview_config import InterviewConfig, interview_name, pick_interview, validate
-from session_picker import ActiveSession, Selection
-from transcript import Transcript, read_transcript
-from stt_common import save_wav
-from whisper_stt import DEFAULT_MIN_AVG_LOGPROB, InterviewWhisperSTT
+from interviewer import settings  # noqa: F401  (loads .env before any project module reads a setting)
+from interviewer import coding
+from interviewer import server
+from interviewer.speech.chinese import tidy_spaces
+from interviewer.claude_code import ClaudeCodeLLMService, check_cli
+from interviewer.coding import SHORT_SESSION_MINUTES
+from interviewer.history import coding_history, practice_history
+from interviewer.config import LANGUAGES, InterviewConfig, interview_name, pick_interview, validate
+from interviewer.llm import complete
+from interviewer.server import ActiveSession, Selection
+from interviewer.transcript import Transcript, read_transcript
+from interviewer.speech.stt_common import save_wav
+from interviewer.speech.whisper_stt import DEFAULT_MIN_AVG_LOGPROB, InterviewWhisperSTT
 
-load_dotenv(override=True)
 
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-opus-5-5")
-# "claude_code" runs Claude through your Claude Code login (no API key); "api" uses ANTHROPIC_API_KEY.
+# "claude_code" runs Claude through your Claude Code login (no API key); "api" uses ANTHROPIC_API_KEY; "openai"
+# uses any OpenAI-compatible API (OPENAI_API_KEY, and OPENAI_BASE_URL for Ollama, LM Studio, vLLM, OpenRouter...).
 LLM_BACKEND = os.getenv("LLM_BACKEND", "claude_code").lower()
 # "off" keeps replies fast; "adaptive" lets Claude think before follow-ups (better probing, slower).
 THINKING = os.getenv("INTERVIEWER_THINKING", "off").lower()
 # Full large-v3 handles accented English noticeably better than the distilled turbo model.
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", WhisperModel.LARGE.value)
-WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")
-WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "float16")
+WHISPER_DEVICE, WHISPER_COMPUTE_TYPE = settings.whisper_device()
 # Whisper segments decoded below this average log-probability are dropped as likely hallucinations.
 # Lower it (e.g. -1.3) if real words go missing; dropped segments are logged.
 WHISPER_MIN_AVG_LOGPROB = float(os.getenv("WHISPER_MIN_AVG_LOGPROB", str(DEFAULT_MIN_AVG_LOGPROB)))
@@ -86,10 +89,13 @@ CANDIDATE_PAUSE_SECS = float(os.getenv("CANDIDATE_PAUSE_SECS", "0.8"))
 VOICE_GAIN_DB = float(os.getenv("VOICE_GAIN_DB", "10"))
 
 VOICE_LANGUAGES = {"en-us": Language.EN_US, "en-gb": Language.EN_GB}
-# Traditional characters and English terms in the prompt steer Whisper toward the same in its output.
-CHINESE_STT_PROMPT = "以下是一場中文技術面試的回答，夾雜英文術語，例如 GRU、MLP、INT8、latency。"
+# Kokoro's language for the interview languages its own voices speak (English uses voice_language above;
+# Mandarin and Japanese have their own services). See config.LANGUAGE_SPECS.
+KOKORO_LANGUAGES = {"es": Language.ES, "fr": Language.FR, "it": Language.IT, "pt-BR": Language.PT_BR, "hi": Language.HI}
 # The interviewer ends its goodbye with this token (see prompts/interviewer.md); it is never spoken.
 END_TOKEN = re.compile(r"\[\[\s*END\s*\]\]")
+# In a coding interview, the interviewer ends the message that moves on to the next problem with this token.
+NEXT_TOKEN = re.compile(r"\[\[\s*NEXT\s*\]\]")
 # After the goodbye, how long to wait for the audio to finish before hanging up anyway.
 END_GRACE_SECS = 20
 
@@ -119,12 +125,18 @@ class VolumeBoost(FrameProcessor):
 
 
 class EndTokenFilter(BaseTextFilter):
-    """Strips the end token before speech and reports that the interviewer has said goodbye."""
+    """Strips the end and next-problem tokens before speech and reports them: the interviewer has said
+    goodbye, or has moved on to the next coding problem."""
 
-    def __init__(self, on_end):
+    def __init__(self, on_end, on_next=None):
         self._on_end = on_end
+        self._on_next = on_next
 
     async def filter(self, text: str) -> str:
+        if NEXT_TOKEN.search(text):
+            if self._on_next:
+                self._on_next()
+            text = NEXT_TOKEN.sub("", text)
         if END_TOKEN.search(text):
             self._on_end()
             text = END_TOKEN.sub("", text)
@@ -166,14 +178,19 @@ class SpeechClock(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-def time_checks(duration_min: int, drill: bool = False) -> list[tuple[float, str]]:
+def time_checks(duration_min: int, drill: bool = False, coding: bool = False) -> list[tuple[float, str]]:
     """Returns (seconds_after_start, note) pairs that nudge Claude to keep to time."""
     wrap_at = max(duration_min * 0.75, duration_min - 7) * 60
-    wrap_note = (
-        "[time check] Time is running short. Finish the current question, then wrap up the drill."
-        if drill
-        else "[time check] Time is running short. Finish the current topic, then move on to the candidate's questions."
-    )
+    if coding:
+        then = "close" if duration_min <= SHORT_SESSION_MINUTES else "move on to the candidate's questions"
+        wrap_note = (
+            "[time check] Time is running short. Do not start another problem. Wrap up the current one: ask for "
+            f"the complexity if you have not, then {then}."
+        )
+    elif drill:
+        wrap_note = "[time check] Time is running short. Finish the current question, then wrap up the drill."
+    else:
+        wrap_note = "[time check] Time is running short. Finish the current topic, then move on to the candidate's questions."
     return [
         (duration_min * 0.5 * 60, "[time check] About half of the time has passed."),
         (wrap_at, wrap_note),
@@ -203,11 +220,19 @@ def language_rule(language: str) -> str:
             "acronyms in English the way Taiwanese engineers say them, for example GRU, INT8, latency, or trade-off. "
             "If the candidate switches to English, continue in Chinese."
         )
-    return "Conduct the interview in English. If the candidate switches languages, continue in English."
+    if language == "en":
+        return "Conduct the interview in English. If the candidate switches languages, continue in English."
+    name = LANGUAGES[language]
+    return (
+        f"Conduct the interview in {name}. Keep technical terms, product names and acronyms in English the way "
+        f"engineers usually say them in {name}. If the candidate switches languages, continue in {name}."
+    )
 
 
-def session_mode(session: dict, minutes: int) -> str:
-    """The "Session mode" section of the interviewer prompt."""
+def session_mode(session: dict, minutes: int, shown: int = 1) -> str:
+    """The "Session mode" section of the interviewer prompt. shown: coding problems already on screen."""
+    if coding.is_coding(session):
+        return coding.session_mode(session, minutes, shown)
     if session.get("mode") == "drill":
         return (
             f"This is a focused practice drill of about {minutes} minutes on: {session.get('topic')}. "
@@ -239,28 +264,47 @@ def resume_note(transcript: Transcript, duration_min: int, passed: list[str]) ->
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     # Chosen on the web page at "/" (or from the command line); applies to this connection.
-    selection = session_picker.selection or Selection(pick_interview(ask=False))
+    selection = server.selection or Selection(pick_interview(ask=False))
     cfg = InterviewConfig.load(selection.interview)
     v = cfg.variables
     # Re-read on every connection, so reconnecting again keeps extending the same transcript.
     saved = read_transcript(selection.resume) if selection.resume else None
     session = saved.session if saved else selection.session()
     drill = session.get("mode") == "drill"
-    minutes = int(session.get("minutes") or cfg.duration_minutes) if drill else cfg.duration_minutes
+    is_coding = coding.is_coding(session)
+    if is_coding and not session.get("problems"):
+        # Normally picked on the setup page; saved with the session, so a resumed session keeps the same problems.
+        try:
+            session["problems"] = await asyncio.to_thread(coding.pick_problems, cfg.name, *coding.filters(session))
+        except coding.LeetCodeError as e:
+            logger.error(f"Could not pick coding problems: {e}")
+            session["problems"] = []
+        if coding.statement_style(session) == "interview":
+            await coding.prepare_statements(session["problems"])
+    minutes = int(session.get("minutes") or cfg.duration_minutes) if drill or is_coding else cfg.duration_minutes
     if saved:
         # Old transcripts estimate their length from file times, which can overshoot.
         saved.elapsed_secs = min(saved.elapsed_secs, minutes * 60)
     title = f"Mock interview: {v.get('role_title')} ({v.get('round_name')})"
     if drill:
         title += f", {'coached ' if session.get('coach') else ''}drill on {session.get('topic')}"
+    if is_coding:
+        title = f"Coding interview ({coding.language_name(session)}, {coding.filters_label(session)}): {v.get('company')}"
     transcript = Transcript(cfg.name, title, session=session, resume=saved)
+    # The coding problems, which one is on screen, and the candidate's code for it.
+    coding_state = coding.CodingSession(session, transcript.turns) if is_coding else None
     action = f"resuming at {transcript.prior_elapsed / 60:.0f} min" if saved else "new session"
-    logger.info(f"Interview '{cfg.name}' ({action}, {'drill' if drill else 'full'}), transcript -> {transcript.path}")
+    kind = "coding" if is_coding else "drill" if drill else "full"
+    logger.info(f"Interview '{cfg.name}' ({action}, {kind}), transcript -> {transcript.path}")
+    if coding_state and coding_state.problems:
+        logger.info("Coding problems: " + ", ".join(p.title for p in coding_state.problems))
+    elif coding_state:
+        logger.error(f"Could not load this session's problems {session.get('problems')} from LeetCode or the cache")
     system_prompt = cfg.render(
         "interviewer.md",
         duration_minutes=str(minutes),
-        session_mode=session_mode(session, minutes),
-        practice_history=practice_history(cfg.name),
+        session_mode=session_mode(session, minutes, coding_state.shown if coding_state else 1),
+        practice_history=coding_history(cfg.name) if is_coding else practice_history(cfg.name),
         language_rule=language_rule(cfg.language),
     )
 
@@ -298,13 +342,28 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             await hang_up()
 
     clock.on_stopped = on_bot_stopped
-    end_filter = EndTokenFilter(interviewer_said_goodbye)
+    notepad = ""  # latest contents of the shared notepad page (coding interviews keep it in coding_state)
 
-    if STT_BACKEND == "parakeet" and cfg.chinese:
-        logger.warning("Parakeet does not understand Chinese; using Whisper for this interview")
-    if STT_BACKEND == "parakeet" and not cfg.chinese:
+    def show_next_problem():
+        """The interviewer moved on ([[NEXT]]): keep the code for the problem so far, then show the next one."""
+        step = coding_state.next_problem() if coding_state else None
+        if not step:
+            return
+        snapshot, line, note = step
+        if snapshot:
+            transcript.add("Candidate", snapshot)
+        transcript.add("Interviewer", line)
+        context.add_message({"role": "developer", "content": note})
+        logger.info(f"Showing coding problem {coding_state.shown}: {coding_state.current.title}")
+
+    end_filter = EndTokenFilter(interviewer_said_goodbye, show_next_problem)
+
+    spoken = cfg.language_spec
+    if STT_BACKEND == "parakeet" and not spoken.parakeet:
+        logger.warning(f"Parakeet does not understand {spoken.name}; using Whisper for this interview")
+    if STT_BACKEND == "parakeet" and spoken.parakeet:
         # Imported here so the Whisper-only setup does not need onnx-asr.
-        from parakeet_stt import ParakeetSTTService
+        from interviewer.speech.parakeet_stt import ParakeetSTTService
 
         stt = ParakeetSTTService(hotwords=cfg.stt_hotwords, device=WHISPER_DEVICE)
     else:
@@ -314,24 +373,37 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             min_avg_logprob=WHISPER_MIN_AVG_LOGPROB,
             hotword_list=cfg.stt_hotwords,
             chinese=cfg.chinese,
+            joined=spoken.joined,
             settings=InterviewWhisperSTT.Settings(
                 model=WHISPER_MODEL,
-                language=Language.ZH if cfg.chinese else Language.EN,
+                language=Language(spoken.whisper),
                 hotwords=" ".join(cfg.stt_hotwords) or None,
                 # The first answer has no conversation to use as the prompt; this one sets the script and style.
-                initial_prompt=CHINESE_STT_PROMPT if cfg.chinese else None,
+                initial_prompt=spoken.stt_prompt,
             ),
         )
     audio_dir = transcript.path.with_name(transcript.path.name.replace("-transcript.md", "-audio"))
 
+    # A voice that does not speak the interview's language falls back to that language's default voice.
+    voice = cfg.voice if cfg.voice.startswith(spoken.voice_prefixes) else spoken.voice
+    if voice != cfg.voice:
+        logger.warning(f"Voice {cfg.voice} does not speak {spoken.name}; using {voice}")
+    if cfg.language != "en" and (cfg.voice_clone or cfg.pocket_voice):
+        logger.warning(f"Pocket TTS only speaks English; using a Kokoro {spoken.name} voice instead")
     if cfg.chinese:
         # Imported here so English-only setups do not need misaki and the Chinese model.
-        from chinese_tts import DEFAULT_ZH_VOICE, ChineseKokoroTTSService
+        from interviewer.speech.chinese_tts import ChineseKokoroTTSService
 
-        if cfg.voice_clone or cfg.pocket_voice:
-            logger.warning("Pocket TTS cannot speak Chinese; using the Kokoro Chinese voice instead")
-        tts = ChineseKokoroTTSService(
-            settings=ChineseKokoroTTSService.Settings(voice=cfg.voice if cfg.voice.startswith("z") else DEFAULT_ZH_VOICE),
+        tts = ChineseKokoroTTSService(settings=ChineseKokoroTTSService.Settings(voice=voice), text_filters=[end_filter])
+    elif cfg.language == "ja":
+        # Imported here so other setups do not need misaki's Japanese G2P.
+        from interviewer.speech.japanese_tts import JapaneseKokoroTTSService
+
+        tts = JapaneseKokoroTTSService(
+            settings=KokoroTTSService.Settings(voice=voice, language=Language.JA), text_filters=[end_filter])
+    elif cfg.language in KOKORO_LANGUAGES:
+        tts = KokoroTTSService(
+            settings=KokoroTTSService.Settings(voice=voice, language=KOKORO_LANGUAGES[cfg.language]),
             text_filters=[end_filter],
         )
     elif cfg.voice_clone or cfg.pocket_voice:
@@ -353,7 +425,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             text_filters=[end_filter],
         )
 
-    if LLM_BACKEND == "api":
+    if LLM_BACKEND == "openai":
+        # Imported here so the Claude setups do not load it.
+        from interviewer.openai_compatible import OpenAICompatibleLLMService
+
+        llm = OpenAICompatibleLLMService(
+            api_key=os.getenv("OPENAI_API_KEY") or "not-needed",
+            base_url=os.getenv("OPENAI_BASE_URL") or None,
+            settings=OpenAICompatibleLLMService.Settings(model=LLM_MODEL, system_instruction=system_prompt),
+        )
+    elif LLM_BACKEND == "api":
         thinking = AnthropicLLMService.ThinkingConfig(
             type="adaptive" if THINKING == "adaptive" else "disabled"
         )
@@ -369,8 +450,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             ),
         )
     else:
-        llm = ClaudeCodeLLMService(system_prompt=system_prompt, model=LLM_MODEL,
-                                   stall_line="不好意思，請稍等一下。" if cfg.chinese else "Sorry, give me just a second.")
+        llm = ClaudeCodeLLMService(system_prompt=system_prompt, model=LLM_MODEL, stall_line=spoken.stall)
 
     context = LLMContext()
     # VAD detects speech; the default turn strategy adds the local Smart Turn v3 model,
@@ -412,10 +492,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
 
     timer_task: asyncio.Task | None = None
     session_started: float | None = None
-    checks = time_checks(minutes, drill)
+    checks = time_checks(minutes, drill, is_coding)
     # Time checks the earlier sessions already passed are not repeated; the latest one goes in the resume note.
     passed = [note for at, note in checks if at <= transcript.prior_elapsed]
-    notepad = ""  # latest contents of the shared notepad page
     paused_since: float | None = None  # time.monotonic() when the current pause began
     paused_total = 0.0  # seconds spent paused in this session
 
@@ -457,13 +536,18 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             logger.info("Interview ended from the web page")
         await hang_up()
 
-    def update_notepad(text: str):
+    def update_notepad(text: str, problem: str | None = None):
         nonlocal notepad
-        if text.strip() == notepad.strip():
-            return
-        notepad = text
+        if coding_state and coding_state.problems:
+            note = coding_state.update_code(text, problem)
+        elif text.strip() != notepad.strip():
+            notepad = text
+            note = f"[notepad] The shared notepad now contains:\n{text}"
+        else:
+            note = None
         # Added silently, like time checks: Claude reads it with the candidate's next answer.
-        context.add_message({"role": "developer", "content": f"[notepad] The shared notepad now contains:\n{text}"})
+        if note:
+            context.add_message({"role": "developer", "content": note})
 
     async def run_timer():
         # Polls the interview clock, which stands still while paused.
@@ -480,10 +564,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     async def on_client_connected(transport, client):
         nonlocal timer_task, session_started
         session_started = time.monotonic()
-        session_picker.active = ActiveSession(
+        server.active = ActiveSession(
             interview=cfg.name, transcript=transcript.path, session=session, minutes=minutes,
             elapsed=now, is_paused=lambda: paused_since is not None, pause=pause, resume=resume,
             end=end_from_page, update_notepad=update_notepad,
+            coding=coding_state.view if coding_state and coding_state.problems else None,
         )
         if saved:
             logger.info("Candidate connected, resuming interview")
@@ -525,6 +610,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     @user_aggregator.event_handler("on_user_turn_stopped")
     async def on_user_turn_stopped(aggregator, strategy, message: UserTurnStoppedMessage):
         nonlocal candidate_start, candidate_pause
+        if coding_state:
+            coding_state.answered()
         start, pause_before = candidate_start, candidate_pause
         candidate_start = candidate_pause = None
         stopped_at = now() if session_started is not None else None
@@ -559,9 +646,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message: AssistantTurnStoppedMessage):
-        text = END_TOKEN.sub("", message.content or "").strip()
+        text = NEXT_TOKEN.sub("", END_TOKEN.sub("", message.content or "")).strip()
+        # In case the TTS filter never saw the tokens.
+        if NEXT_TOKEN.search(message.content or ""):
+            show_next_problem()
         if END_TOKEN.search(message.content or ""):
-            interviewer_said_goodbye()  # in case the TTS filter never saw the token
+            interviewer_said_goodbye()
+        # Sentences arrive joined with spaces, which Chinese and Japanese don't use ("田中です。 今日は").
+        text = tidy_spaces(text)
         if interviewer_start is not None:
             transcript.add("Interviewer", text, interviewer_start, now() - interviewer_start)
         else:
@@ -572,7 +664,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     try:
         await runner.run()
     finally:
-        session_picker.active = None
+        server.active = None
         if timer_task:
             timer_task.cancel()
         if end_task:
@@ -580,7 +672,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
 
     if session_started is None:
         return
-    if notepad.strip():
+    if coding_state and coding_state.final_snapshot():
+        transcript.add("Candidate", coding_state.final_snapshot())
+    elif notepad.strip():
         transcript.add("Candidate", f"[Shared notepad at the end of the session]\n```\n{notepad.strip()}\n```")
     elapsed = now()
     transcript.mark_elapsed(elapsed)
@@ -588,18 +682,30 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     # Ended on purpose (the interviewer said goodbye, or "end" on the web page), or ran past half time:
     # treat it as finished. Otherwise it was most likely a dropped connection.
     if not end_reason and elapsed < minutes * 60 / 2:
-        session_picker.selection = Selection(selection.interview, transcript.path)
+        server.selection = Selection(selection.interview, transcript.path)
         logger.info(
             f"Session stopped at {elapsed / 60:.0f} of {minutes} min. Connect again to continue it "
-            f"(or choose on the web page). For a report anyway, use the page or: python feedback.py {transcript.path}"
+            f"(or choose on the web page). For a report anyway, use the page or: python -m interviewer.feedback {transcript.path}"
         )
         return
 
     # A finished session: the next Connect starts a new one with the same settings.
-    session_picker.selection = Selection(selection.interview, None, selection.mode, selection.topic, selection.minutes,
-                                         selection.coach)
+    server.selection = replace(selection, resume=None, problems=None)
+    # Pick the next coding session's problems now rather than while the candidate waits on the next Connect.
+    finished = server.selection
+    next_session = finished.session()
+    if coding.is_coding(next_session):
+        try:
+            problems = await asyncio.to_thread(coding.pick_problems, cfg.name, *coding.filters(next_session))
+            if coding.statement_style(next_session) == "interview":
+                await coding.prepare_statements(problems)
+            # Unless the setup page chose something else in the meantime.
+            if server.selection is finished:
+                server.selection = replace(finished, problems=problems)
+        except coding.LeetCodeError as e:
+            logger.warning(f"Could not pick the next coding problems yet ({e}); they will be picked on Connect")
     if AUTO_FEEDBACK and len(transcript.turns) >= 4:
-        await session_picker.generate_report(selection.interview, transcript.path)
+        await server.generate_report(selection.interview, transcript.path)
 
 
 async def bot(runner_args: RunnerArguments):
@@ -617,12 +723,34 @@ if __name__ == "__main__":
     resume = Path(args.resume) if args.resume else None
     if resume and not resume.exists():
         raise SystemExit(f"Transcript not found: {resume}")
-    session_picker.selection = Selection(pick_interview(args.interview, resume, ask=False), resume)
-    session_picker.register(app)
-    for issue in validate(session_picker.selection.interview):
+    server.selection = Selection(pick_interview(args.interview, resume, ask=False), resume)
+    server.register(app)
+    for issue in validate(server.selection.interview):
         (logger.error if issue["level"] == "error" else logger.warning)(f"Interview setup: {issue['message']}")
+    # Find out now, not with the candidate waiting in silence, if the interviewer can't think.
+    if LLM_BACKEND == "openai":
+        if not os.getenv("LLM_MODEL"):
+            raise SystemExit("LLM_BACKEND=openai needs LLM_MODEL in .env, e.g. LLM_MODEL=gpt-5 or LLM_MODEL=qwen3:32b.")
+        logger.info(f"Checking that {LLM_MODEL} answers at {os.getenv('OPENAI_BASE_URL') or 'api.openai.com'}...")
+        try:
+            asyncio.run(asyncio.wait_for(complete("Reply with just the word: ok", LLM_MODEL), 90))
+        except Exception as e:
+            raise SystemExit(f"The OpenAI-compatible API can't be used: {e!r}\n"
+                             "Check OPENAI_BASE_URL, OPENAI_API_KEY and LLM_MODEL in .env.")
+    elif LLM_BACKEND == "api":
+        if os.getenv("ANTHROPIC_API_KEY", "sk-ant-...") == "sk-ant-...":
+            raise SystemExit("LLM_BACKEND=api needs ANTHROPIC_API_KEY in .env (or use LLM_BACKEND=claude_code).")
+    else:
+        logger.info("Checking that the Claude Code CLI answers...")
+        problem = check_cli(LLM_MODEL)
+        if problem:
+            raise SystemExit(
+                f"The Claude Code CLI can't be used: {problem}\n"
+                "Install Claude Code (https://claude.com/claude-code), run `claude` once and sign in, then try again. "
+                "Or set LLM_BACKEND=api and ANTHROPIC_API_KEY in .env."
+            )
     logger.info(
-        f"Interview: {interview_name(session_picker.selection.interview)}" + (f", resuming {resume}" if resume else "")
+        f"Interview: {interview_name(server.selection.interview)}" + (f", resuming {resume}" if resume else "")
         + ". Open http://localhost:7860/ to choose another interview or a transcript to resume."
     )
     main(parser)

@@ -1,8 +1,8 @@
 import pytest
 
-import interview_config as ic
+from interviewer import config as ic
 from conftest import COMPANY, ROUND, write_yaml
-from transcript import Transcript
+from interviewer.transcript import Transcript
 
 ALL_FILES = {name: f"{name} text" for name in ("jd.md", "round_info.md", "question_bank.md", "rubric.md", "company_info.md")}
 
@@ -273,7 +273,8 @@ def test_validate_non_mapping_yaml(dirs, make_round):
 @pytest.mark.parametrize("value, expected", [
     (None, "en"), ("", "en"), ("en", "en"), ("English", "en"),
     ("zh-TW", "zh-TW"), ("zh", "zh-TW"), ("zh-tw", "zh-TW"), ("中文", "zh-TW"),
-    ("fr", None),
+    ("ja", "ja"), ("Japanese", "ja"), ("日本語", "ja"), ("es", "es"), ("français", "fr"), ("pt-br", "pt-BR"),
+    ("Hindi", "hi"), ("klingon", None),
 ])
 def test_language_code(value, expected):
     assert ic.language_code(value) == expected
@@ -301,12 +302,92 @@ def test_load_keeps_explicit_feedback_language(dirs, make_round):
 
 def test_load_rejects_unknown_language(dirs, make_round):
     with pytest.raises(ValueError, match="interview_language"):
-        ic.InterviewConfig.load(make_round("acme", "hm", config={**ROUND, "interview_language": "fr"}))
+        ic.InterviewConfig.load(make_round("acme", "hm", config={**ROUND, "interview_language": "klingon"}))
 
 
 def test_validate_language(dirs, make_round):
-    bad = make_round("acme", "fr", config={**ROUND, "interview_language": "fr"}, company_files=ALL_FILES)
-    assert any("interview_language" in e for e in levels(ic.validate(bad), "error"))
+    bad = make_round("acme", "xx", config={**ROUND, "interview_language": "klingon"}, company_files=ALL_FILES)
+    assert any("interview_language" in e and "ja（Japanese）" in e for e in levels(ic.validate(bad), "error"))
     cloned = make_round("acme", "zh", config={**ROUND, "interview_language": "zh-TW", "pocket_voice": "javert"},
                         company_files=ALL_FILES)
     assert any("Pocket TTS" in w for w in levels(ic.validate(cloned), "warning"))
+
+
+@pytest.mark.parametrize("language, name, report, voice", [
+    ("ja", "Japanese", "Japanese", "jm_kumo"),
+    ("es", "Spanish", "Spanish", "em_alex"),
+    ("fr", "French", "French", "ff_siwis"),
+    ("it", "Italian", "Italian", "im_nicola"),
+    ("pt-BR", "Brazilian Portuguese", "Brazilian Portuguese", "pm_alex"),
+    ("hi", "Hindi", "Hindi", "hm_omega"),
+])
+def test_load_other_languages(dirs, make_round, language, name, report, voice):
+    cfg = ic.InterviewConfig.load(make_round("acme", "hm", config={**ROUND, "interview_language": language}))
+    assert cfg.language == language and not cfg.chinese
+    assert cfg.variables["interview_language"] == name and cfg.variables["feedback_language"] == report
+    assert cfg.language_spec.voice == voice and voice.startswith(cfg.language_spec.voice_prefixes)
+
+
+def test_validate_voice_that_does_not_speak_the_language(dirs, make_round):
+    english_voice = make_round("acme", "ja", config={**ROUND, "interview_language": "ja", "voice": "am_michael"},
+                               company_files=ALL_FILES)
+    assert any("am_michael 不會說 Japanese" in w for w in levels(ic.validate(english_voice), "warning"))
+    fine = make_round("acme", "es", config={**ROUND, "interview_language": "es", "voice": "ef_dora"},
+                      company_files=ALL_FILES)
+    assert not [w for w in levels(ic.validate(fine), "warning") if "不會說" in w]
+
+
+# --- per-round customization ----------------------------------------------------------------------
+
+def test_a_round_or_company_can_replace_a_prompt(dirs, make_round, monkeypatch):
+    shared = dirs.root / "prompts"
+    shared.mkdir()
+    for name in ("interviewer.md", "feedback.md", "setup_draft.md"):
+        (shared / name).write_text(f"shared {name}", encoding="utf-8")
+    monkeypatch.setattr(ic, "PROMPTS_DIR", shared)
+    round_dir = make_round("acme", "hm")
+    (round_dir / "prompts").mkdir()
+    (round_dir / "prompts" / "interviewer.md").write_text("round {{company}}", encoding="utf-8")
+    (dirs.interviews / "acme" / "prompts").mkdir()
+    (dirs.interviews / "acme" / "prompts" / "feedback.md").write_text("company feedback", encoding="utf-8")
+    (dirs.interviews / "acme" / "prompts" / "setup_draft.md").write_text("not overridable", encoding="utf-8")
+    cfg = ic.InterviewConfig.load(round_dir)
+    assert cfg.render("interviewer.md") == "round Acme"  # the round's own copy
+    assert cfg.render("feedback.md") == "company feedback"  # the company's copy
+    assert cfg.render("setup_draft.md") == "shared setup_draft.md"  # only the listed prompts can be replaced
+    other = ic.InterviewConfig.load(make_round("beta", "hm"))
+    assert other.render("interviewer.md") == "shared interviewer.md"
+
+
+def test_validate_prompt_overrides(dirs, make_round):
+    round_dir = make_round("acme", "hm")
+    (round_dir / "prompts").mkdir()
+    (round_dir / "prompts" / "interviewer.md").write_text("A homemade prompt.", encoding="utf-8")
+    (round_dir / "prompts" / "notes.md").write_text("x", encoding="utf-8")
+    messages = {(i["level"], i["message"]) for i in ic.validate(round_dir)}
+    assert any(level == "error" and "{{session_mode}}" in m for level, m in messages)
+    assert any(level == "error" and "[[END]]" in m for level, m in messages)
+    assert any(level == "warning" and "notes.md 不會被使用" in m for level, m in messages)
+
+
+def test_coding_defaults(dirs, make_round):
+    coding = {"language": "cpp", "difficulties": ["medium", "hard"], "tags": ["graph"], "minutes": 30,
+              "rating": [1600, None], "statement": "leetcode", "interview_only": False}
+    cfg = ic.InterviewConfig.load(make_round("acme", "hm", config={**ROUND, "coding": {**coding, "typo": 1}}))
+    assert cfg.coding == coding  # unknown keys are dropped
+    assert not [i for i in ic.validate(make_round("acme", "ok", config={**ROUND, "coding": coding})) if "coding" in i["message"]]
+
+
+@pytest.mark.parametrize("coding, expected", [
+    ("cpp", "要寫成設定清單"),
+    ({"language": "java"}, "coding.language"),
+    ({"difficulties": ["impossible"]}, "coding.difficulties"),
+    ({"minutes": 90}, "coding.minutes"),
+    ({"statement": "vague"}, "coding.statement"),
+    ({"rating": 1600}, "coding.rating"),
+    ({"langauge": "cpp"}, "不認得的設定 langauge"),
+])
+def test_validate_coding_defaults(dirs, make_round, coding, expected):
+    issues = ic.validate(make_round("acme", "hm", config={**ROUND, "coding": coding}))
+    assert any(expected in i["message"] for i in issues)
+    assert "coding" not in {m["message"].split()[-1] for m in issues if "不認得的設定 coding" in m["message"]}

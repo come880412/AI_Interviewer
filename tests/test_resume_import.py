@@ -3,8 +3,8 @@ import zipfile
 
 import pytest
 
-import resume_import
-from resume_import import ResumeImportError, extract_text
+from interviewer import resume_import
+from interviewer.resume_import import ResumeImportError, extract_text
 
 LONG_TEXT = "Jane Doe, ML Engineer. Five years of experience building inference pipelines with TensorRT."
 

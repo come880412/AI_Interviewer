@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>練習進度</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%232f5bd3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 <style>
   main { max-width: 1000px; }
@@ -17,7 +18,7 @@
   <header>
     <h1 id="heading">練習進度</h1>
     <p class="lede">每一場有分數的練習。分數來自回饋報告依評分標準（rubric）打的 1–5 分。</p>
-    <div class="nav"><a href="/">← 回到設定頁</a></div>
+    <div class="nav"><a href="/">← 回到設定頁</a><a href="#" id="kind-link" hidden></a></div>
   </header>
   <section>
     <h2>各面向趨勢</h2>
@@ -32,6 +33,8 @@
 (function () {
   var params = new URLSearchParams(location.search);
   var interview = params.get("interview");
+  // Coding interviews are scored on their own rubric, so they get their own view.
+  var kind = params.get("kind") === "coding" ? "coding" : "interview";
   var verdicts = { "hire": "錄取", "lean hire": "傾向錄取", "lean no": "傾向不錄取", "no": "不錄取" };
 
   function el(tag, cls, text) {
@@ -91,8 +94,44 @@
     return;
   }
 
-  fetch("/api/progress?interview=" + encodeURIComponent(interview)).then(function (r) { return r.json(); }).then(function (d) {
-    document.getElementById("heading").textContent = "練習進度 · " + d.company + " · " + d.round;
+  function modeLabel(s) {
+    if (s.mode === "coding") {
+      var parts = [{ python: "Python", cpp: "C++" }[s.language] || s.language, (s.difficulties || []).join("/")];
+      if ((s.tags || []).length) parts.push(s.tags.join(", "));
+      if (s.rating) parts.push("rating " + (s.rating[0] == null ? "" : s.rating[0]) + "–" + (s.rating[1] == null ? "" : s.rating[1]));
+      if (s.interview_only === false) parts.push("不限面試常見題");
+      if (s.statement !== "interview") parts.push("LeetCode 原題");
+      return "Coding：" + parts.join(" · ");
+    }
+    return s.mode === "drill" ? (s.coach ? "教練：" : "專項：") + s.topic : "完整面試";
+  }
+
+  function failed(message) {
+    var box = document.getElementById("trend");
+    box.replaceChildren(el("p", "empty", "讀不到練習進度：" + message));
+    var back = el("a", null, "回到設定頁");
+    back.href = "/";
+    box.append(back);
+    document.getElementById("table").replaceChildren(el("p", "empty", "—"));
+  }
+
+  fetch("/api/progress?interview=" + encodeURIComponent(interview) + "&kind=" + kind).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (j) {
+      if (!r.ok) throw new Error(j.detail || "伺服器回應 " + r.status);
+      return j;
+    });
+  }).catch(function (err) {
+    failed(err.message === "Failed to fetch" ? "連不上伺服器，bot.py 還在執行嗎？" : err.message);
+    return null;
+  }).then(function (d) {
+    if (!d) return;
+    document.getElementById("heading").textContent = "練習進度 · " + d.company + " · " + (kind === "coding" ? "Coding 面試" : d.round);
+    var other = document.getElementById("kind-link");
+    if (kind === "coding" || d.coding_sessions) {
+      other.hidden = false;
+      other.textContent = kind === "coding" ? "看面試的進度 →" : "看 Coding 面試的進度（" + d.coding_sessions + " 場）→";
+      other.href = "/progress?interview=" + encodeURIComponent(interview) + (kind === "coding" ? "" : "&kind=coding");
+    }
     var trend = document.getElementById("trend");
     var tableBox = document.getElementById("table");
     if (!d.sessions.length) {
@@ -124,7 +163,7 @@
     d.sessions.slice().reverse().forEach(function (s) {
       var tr = el("tr");
       tr.append(el("td", "meta", s.started));
-      tr.append(el("td", null, s.session.mode === "drill" ? (s.session.coach ? "教練：" : "專項：") + s.session.topic : "完整面試"));
+      tr.append(el("td", null, modeLabel(s.session)));
       tr.append(el("td", null, verdicts[s.verdict] || s.verdict || "—"));
       areas.forEach(function (a) { var td = el("td"); td.append(scoreChip(scoreOf(s, a))); tr.append(td); });
       tr.append(el("td", "meta", (s.next_focus || []).join("；")));

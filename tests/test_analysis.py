@@ -1,7 +1,7 @@
 import pytest
 
-from analysis import answers, delivery_summary
-from transcript import Turn
+from interviewer.analysis import answers, delivery_summary
+from interviewer.transcript import Turn
 
 
 def I(text, at=None, duration=None):
@@ -94,4 +94,11 @@ def test_speaking_rate_counts_chinese_characters():
     (a,) = answers(turns)
     assert a.words == 15  # fourteen characters and "CNN"
     summary = delivery_summary(turns)
-    assert "units per minute, counting each Chinese character and each English word as one" in summary
+    assert "units per minute, counting each Chinese or Japanese character and each English word as one" in summary
+
+
+def test_code_snapshots_are_not_counted_as_speech():
+    code = "[Notepad: final Python code for problem 1, Alpha]\n```python\n" + "x = 1\n" * 40 + "```"
+    turns = [I("Walk me through it.", 0, 3), C("I loop over the array once and keep a map.", 4, 6, pause=1.0), C(code)]
+    (a,) = answers(turns)
+    assert a.words == 10 and a.seconds == 6

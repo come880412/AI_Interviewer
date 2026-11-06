@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import whisper_stt
-from whisper_stt import SUBTITLE_CREDITS, WORD, InterviewWhisperSTT
+from interviewer.speech import whisper_stt
+from interviewer.speech.whisper_stt import SUBTITLE_CREDITS, WORD, InterviewWhisperSTT
 
 HOTWORDS = "QNX TensorRT ONNX INT8 QNN HTP"
 

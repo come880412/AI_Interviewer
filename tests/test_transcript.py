@@ -5,20 +5,43 @@ from pathlib import Path
 
 import pytest
 
-import transcript
-from transcript import SavedTranscript, Transcript, Turn, _estimate_elapsed, read_transcript, sibling
+from interviewer import transcript
+from interviewer.transcript import SavedTranscript, Transcript, Turn, _estimate_elapsed, read_transcript, sibling
 
 
 def test_new_transcript_writes_header_and_tags(dirs):
     t = Transcript("acme/hm", "Mock interview: ML Engineer", session={"mode": "full"})
     assert t.path.parent == dirs.transcripts / "acme" / "hm"
-    assert re.fullmatch(r"\d{8}-\d{4}-transcript\.md", t.path.name)
+    assert re.fullmatch(r"\d{8}-\d{6}-transcript\.md", t.path.name)
     text = t.path.read_text(encoding="utf-8")
     assert text.startswith("# Mock interview: ML Engineer\n\n")
     assert "<!-- interview: acme/hm -->" in text
     assert '<!-- session: {"mode": "full"} -->' in text
     assert t.prior_elapsed == 0.0
     assert t.turns == []
+
+
+def test_two_sessions_in_one_second_get_their_own_files(dirs, monkeypatch):
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 5, 10, 10, 5)
+
+    monkeypatch.setattr(transcript, "datetime", Frozen)
+    first = Transcript("acme/hm", "First")
+    second = Transcript("acme/hm", "Second")
+    assert first.path.name == "20261105-101005-transcript.md"
+    assert second.path.name == "20261105-101005-2-transcript.md"
+    assert first.path.read_text(encoding="utf-8").startswith("# First")
+
+
+def test_a_transcript_that_cannot_be_read_is_skipped(dirs):
+    good = Transcript("acme/hm", "Good")
+    good.add("Interviewer", "Hi")
+    bad = good.path.with_name("20260101-0000-transcript.md")
+    bad.write_text('# Bad\n\n<!-- session: {"mode": broken} -->\n\n', encoding="utf-8")
+    bad.with_name("20260101-0001-transcript.md").write_bytes(b"\xff\xfe not utf-8")
+    assert [s.path for s in transcript.saved_transcripts(good.path.parent)] == [good.path]
 
 
 def test_default_session_is_full(dirs):
@@ -157,6 +180,18 @@ def test_headings_and_comments_are_not_turn_text(dirs):
     saved = read_transcript(path)
     assert [x.text for x in saved.turns] == ["Q"]
     assert saved.elapsed_secs == 12.0
+
+
+def test_code_with_comments_after_blank_lines_round_trips(dirs):
+    code = ("[Notepad, problem 1]\n```cpp\n#include <vector>\n\n#define N 10\n\n// helper\nint f();\n\n"
+            "# not a heading\n<!-- html in code -->\n```")
+    t = Transcript("acme/hm", "T")
+    t.add("Candidate", code)
+    t.add("Interviewer", "Walk me through it.", at=5, duration=2)
+    t.mark_elapsed(60)
+    saved = read_transcript(t.path)
+    assert [x.text for x in saved.turns] == [code, "Walk me through it."]
+    assert saved.elapsed_secs == 60.0
 
 
 def test_estimate_elapsed_bad_name_and_future_start(tmp_path):

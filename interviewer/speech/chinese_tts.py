@@ -20,7 +20,7 @@ from pipecat.transcriptions.language import Language
 from pipecat.utils.tracing.service_decorators import traced_tts
 from pipecat.utils.types import require_given
 
-from chinese import to_simplified
+from interviewer.speech.chinese import to_simplified
 
 KOKORO_ZH_DIR = Path.home() / ".cache" / "ai-interviewer" / "kokoro-v1.1-zh"
 KOKORO_ZH_FILES = {

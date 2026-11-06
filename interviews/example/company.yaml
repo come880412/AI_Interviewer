@@ -1,9 +1,9 @@
-# ===== 範例公司（虛構）：複製 interviews/_template 建立你自己的公司，或在設定頁用「新增公司或關卡」 =====
+# ===== A fictional example company. Copy interviews/_template for your own, or use "new company or round" on the setup page =====
 company: Acme Vision
 role_title: Computer Vision Engineer
-feedback_language: Traditional Chinese (Taiwan)   # 面試後回饋報告的語言
+feedback_language: English   # language of the report after the interview, e.g. English or Traditional Chinese (Taiwan)
 
-# ===== 語音辨識提示詞：JD 裡容易聽錯的專有名詞 =====
+# ===== Speech recognition hints: terms from the JD that are easy to mishear =====
 stt_hotwords:
   - Acme Vision
   - OpenCV

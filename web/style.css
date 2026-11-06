@@ -5,6 +5,7 @@
   --ink: #1a2230;
   --muted: #5d6878;
   --line: #dce1e8;
+  --field-line: #7c8796;  /* form-field borders: 3:1 against the page, unlike the decorative --line */
   --accent: #2f5bd3;
   --accent-soft: #e8eefc;
   --done: #1f7a4c;
@@ -19,7 +20,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #10141a; --surface: #171d26; --ink: #e4e8ee; --muted: #9aa4b2; --line: #2a323e;
+    --bg: #10141a; --surface: #171d26; --ink: #e4e8ee; --muted: #9aa4b2; --line: #2a323e; --field-line: #5f6b7a;
     --accent: #8ca5ff; --accent-soft: #1e2847; --done: #66d39e; --done-soft: #12301f;
     --cut: #f0b661; --cut-soft: #33260f; --bad: #ff8d82; --bad-soft: #3a1714;
     color-scheme: dark;
@@ -63,7 +64,7 @@ button.danger { background: var(--bad); }
 .file-label input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .file-label span { display: inline-block; font-weight: 500; border-radius: 8px; padding: 7px 14px; border: 1px solid var(--accent); color: var(--accent); cursor: pointer; }
 .file-label input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
-textarea, input[type="text"], input[type="number"], select { font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; max-width: 100%; }
+textarea, input[type="text"], input[type="number"], select { font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 1px solid var(--field-line); border-radius: 8px; padding: 7px 10px; max-width: 100%; }
 textarea { width: 100%; line-height: 1.55; resize: vertical; }
 textarea.code { font-family: var(--mono); font-size: 13px; }
 label.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
