@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-import feedback
-from transcript import SavedTranscript
+from interviewer import feedback
+from interviewer.transcript import SavedTranscript
 
 EMPTY = {"areas": [], "strengths": [], "weaknesses": [], "questions": [], "next_focus": []}
 
@@ -110,3 +110,27 @@ def test_session_info_drill():
 def test_session_info_coached_drill():
     text = feedback.session_info(saved({"mode": "drill", "topic": "CUDA streams", "minutes": 15, "coach": True}, 600))
     assert "Score the candidate's first attempt at each question" in text
+
+
+def test_scores_from_a_round_whose_feedback_prompt_has_no_example(dirs, make_round, monkeypatch):
+    import asyncio
+    from interviewer import feedback
+    from interviewer.config import InterviewConfig
+    from interviewer.transcript import Transcript, read_transcript
+
+    round_dir = make_round("acme", "hm")
+    (round_dir / "prompts").mkdir()
+    (round_dir / "prompts" / "feedback.md").write_text("Write a short report.", encoding="utf-8")
+    t = Transcript("acme/hm", "T")
+    t.add("Interviewer", "Hi")
+    t.add("Candidate", "Hello")
+    feedback.sibling(t.path, "feedback").write_text("The report.", encoding="utf-8")
+    prompts = []
+
+    async def complete(prompt, model):
+        prompts.append(prompt)
+        return '<scores>\n{"verdict": "hire", "areas": []}\n</scores>'
+
+    monkeypatch.setattr(feedback, "complete", complete)
+    out = asyncio.run(feedback.extract_scores(InterviewConfig.load(round_dir), read_transcript(t.path)))
+    assert out and out.exists() and "<scores>" in prompts[0]  # the shape came from the shared prompt

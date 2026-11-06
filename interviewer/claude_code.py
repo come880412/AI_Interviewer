@@ -36,6 +36,8 @@ from pipecat.services.settings import LLMSettings
 ON_WSL = platform.system() == "Linux" and "microsoft" in platform.release().lower()
 # A CLI that sends no event for this long during a turn is treated as stuck and restarted.
 EVENT_TIMEOUT_SECS = 60
+# A one-shot call (a feedback report on a long interview can take minutes) is given up after this long.
+RUN_ONCE_TIMEOUT_SECS = 600
 
 
 def find_claude_cli() -> str:
@@ -56,6 +58,25 @@ def find_claude_cli() -> str:
     if not found:
         raise FileNotFoundError("Claude Code CLI not found. Install it, or set CLAUDE_CODE_PATH in .env.")
     return max(found, key=version)
+
+
+def cli_env() -> dict:
+    # In -p mode the CLI prefers ANTHROPIC_API_KEY over the login, and this backend is meant to use the login
+    # (an unused or placeholder key in .env would otherwise break it).
+    return {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+
+
+def check_cli(model: str) -> str | None:
+    """Asks the CLI for a one-word reply. Returns what went wrong, or None when it answered."""
+    try:
+        asyncio.run(run_once("Reply with just the word: ok", model, timeout=90))
+    except FileNotFoundError as e:
+        return str(e)
+    except asyncio.TimeoutError:
+        return "the Claude Code CLI did not answer within 90 seconds"
+    except Exception as e:
+        return str(e)
+    return None
 
 
 def cli_path_arg(cli: str, path: str) -> str:
@@ -138,6 +159,7 @@ class ClaudeCodeLLMService(LLMService):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=tempfile.gettempdir(),  # keep project CLAUDE.md files out of the interviewer's context
+            env=cli_env(),
             limit=2**24,
         )
         self._reader = asyncio.create_task(self._read_events())
@@ -234,8 +256,11 @@ class ClaudeCodeLLMService(LLMService):
                 self._pending_results -= 1
 
         await self.start_ttfb_metrics()
-        self._send({"type": "user", "message": {"role": "user", "content": text}})
-        await self._proc.stdin.drain()
+        try:
+            self._send({"type": "user", "message": {"role": "user", "content": text}})
+            await self._proc.stdin.drain()
+        except (ConnectionError, OSError) as e:
+            raise RuntimeError(f"Claude Code CLI is gone ({e!r})") from e
         self._pending_results += 1
 
         while True:
@@ -250,6 +275,8 @@ class ClaudeCodeLLMService(LLMService):
                 self._pending_results -= 1
                 if event.get("is_error"):
                     logger.warning(f"{self}: CLI turn ended with {event.get('subtype')}: {event.get('result')}")
+                    if not self._spoke:
+                        raise RuntimeError(f"Claude Code CLI turn failed: {event.get('result')}")
                 return
 
     async def _process_context(self, context: LLMContext):
@@ -289,7 +316,8 @@ class ClaudeCodeLLMService(LLMService):
             await self.push_frame(LLMFullResponseEndFrame())
 
 
-async def run_once(prompt: str, model: str, system_prompt: str = "", cli_path: str | None = None) -> str:
+async def run_once(prompt: str, model: str, system_prompt: str = "", cli_path: str | None = None,
+                   timeout: float = RUN_ONCE_TIMEOUT_SECS) -> str:
     """One-shot completion through the CLI (used for the feedback report)."""
     cli = cli_path or find_claude_cli()
     prompt_file = write_prompt_file(system_prompt or "You are a helpful assistant.")
@@ -300,8 +328,14 @@ async def run_once(prompt: str, model: str, system_prompt: str = "", cli_path: s
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=tempfile.gettempdir(),
+            env=cli_env(),
         )
-        out, err = await proc.communicate(prompt.encode("utf-8"))
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(prompt.encode("utf-8")), timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise
     finally:
         os.remove(prompt_file)
     if proc.returncode != 0:

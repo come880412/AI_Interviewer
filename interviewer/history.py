@@ -7,7 +7,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from transcript import TRANSCRIPTS_DIR, read_transcript, sibling
+from interviewer import coding
+from interviewer.transcript import TRANSCRIPTS_DIR, read_transcript, sibling
 
 # How far back the interviewer looks.
 RECENT_SESSIONS = 3
@@ -19,11 +20,12 @@ def sessions(interview: str) -> list[dict]:
     result = []
     for transcript in sorted((TRANSCRIPTS_DIR / interview).glob("*-transcript.md")):
         scores_path = sibling(transcript, "scores", ".json")
-        if not scores_path.exists():
+        if not scores_path.exists():  # checked first: reading every transcript would be slow
             continue
         try:
             scores = json.loads(scores_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+            saved = read_transcript(transcript)
+        except (OSError, ValueError):  # a broken file is skipped, not allowed to break the page
             continue
         try:
             started = datetime.strptime(transcript.name[:13], "%Y%m%d-%H%M").strftime("%Y-%m-%d %H:%M")
@@ -32,16 +34,21 @@ def sessions(interview: str) -> list[dict]:
         result.append({
             "file": transcript.name,
             "started": started,
-            "session": read_transcript(transcript).session,
+            "session": saved.session,
             **scores,
         })
     return result
 
 
+def _interview_sessions(interview: str) -> list[dict]:
+    """Full interviews and drills. Coding interviews have their own rubric and history (coding_history)."""
+    return [s for s in sessions(interview) if not coding.is_coding(s["session"])]
+
+
 def drill_suggestions(interview: str) -> list[str]:
     """Topics the latest reports said to practice next, most recent first, without duplicates."""
     topics: list[str] = []
-    for s in reversed(sessions(interview)):
+    for s in reversed(_interview_sessions(interview)):
         for topic in s.get("next_focus", []):
             if topic not in topics:
                 topics.append(topic)
@@ -50,7 +57,7 @@ def drill_suggestions(interview: str) -> list[str]:
 
 def practice_history(interview: str) -> str:
     """Plain-text notes for the interviewer prompt."""
-    past = sessions(interview)
+    past = _interview_sessions(interview)
     if not past:
         return "This is the candidate's first scored practice session for this round."
 
@@ -75,4 +82,24 @@ def practice_history(interview: str) -> str:
     if asked:
         lines.append("Questions already asked in earlier sessions:")
         lines += [f"- {q}" for q in asked[:MAX_QUESTIONS]]
+    return "\n".join(lines)
+
+
+def coding_history(interview: str) -> str:
+    """Plain-text notes for the interviewer prompt of a coding interview. The software picks the problems, so
+    these notes are about how the candidate tends to work, not which problems to ask."""
+    past = [s for s in sessions(interview) if coding.is_coding(s["session"])]
+    if not past:
+        return "This is the candidate's first scored coding practice session."
+    lines = [f"The candidate has done {len(past)} scored coding practice session(s). Most recent first:"]
+    for s in reversed(past[-RECENT_SESSIONS:]):
+        label = f"{coding.language_name(s['session'])}, {coding.filters_label(s['session'])}"
+        weak = "; ".join(w.get("topic", "") for w in s.get("weaknesses", [])) or "none recorded"
+        lines.append(f"- {s['started']} ({label}), verdict {s.get('verdict', 'unknown')}. Weak spots: {weak}")
+    focus = []
+    for s in reversed(past):
+        focus += [t for t in s.get("next_focus", []) if t not in focus]
+    if focus:
+        lines.append("Habits the last reports said to work on, which you should give the candidate a chance to show: "
+                     + "; ".join(focus[:6]))
     return "\n".join(lines)

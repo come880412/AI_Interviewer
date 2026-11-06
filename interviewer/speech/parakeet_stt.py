@@ -17,8 +17,8 @@ from pipecat.services.stt_service import SegmentedSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
-from stt_common import PARAKEET_MODEL, TurnAudio, hotword_fixer, load_parakeet
-from whisper_stt import MIN_RMS
+from interviewer.speech.stt_common import PARAKEET_MODEL, TurnAudio, hotword_fixer, load_parakeet
+from interviewer.speech.whisper_stt import MIN_RMS
 
 
 class ParakeetSTTService(SegmentedSTTService):

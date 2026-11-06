@@ -1,8 +1,8 @@
 """Compares speech-to-text models on your own recorded answers.
 
 Set SAVE_CANDIDATE_AUDIO=true in .env, do an interview, then:
-    python compare_stt.py transcripts/acme/tech/20261101-1930-transcript.md
-    python compare_stt.py transcripts/acme/tech/20261101-1930-transcript.md --models whisper parakeet whisper-turbo
+    python scripts/compare_stt.py transcripts/acme/tech/20261101-1930-transcript.md
+    python scripts/compare_stt.py transcripts/acme/tech/20261101-1930-transcript.md --models whisper parakeet whisper-turbo
 
 Writes *-stt-compare.md next to the transcript: for each answer, what was transcribed live during the
 interview and what each model hears when given the whole answer at once. Read them against what you
@@ -13,20 +13,21 @@ import argparse
 import gc
 import json
 import os
+import sys
 import time
 import wave
 from pathlib import Path
 
 import numpy as np
-from dotenv import load_dotenv
 
-from interview_config import InterviewConfig, pick_interview
-from stt_common import hotword_fixer, load_parakeet
-from transcript import sibling
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # run as a file: find the interviewer package
 
-load_dotenv(override=True)
+from interviewer import settings  # noqa: E402  (loads .env before the settings below are read)
+from interviewer.config import InterviewConfig, pick_interview  # noqa: E402
+from interviewer.speech.stt_common import hotword_fixer, load_parakeet  # noqa: E402
+from interviewer.transcript import sibling  # noqa: E402
 
-DEVICE = os.getenv("WHISPER_DEVICE", "cuda")
+DEVICE, COMPUTE_TYPE = settings.whisper_device()
 WHISPER_MODELS = {
     "whisper": os.getenv("WHISPER_MODEL", "large-v3"),
     "whisper-turbo": "deepdml/faster-whisper-large-v3-turbo-ct2",
@@ -52,7 +53,7 @@ def transcribe_all(name: str, audio: list[np.ndarray], hotwords: list[str]) -> t
     else:
         from faster_whisper import WhisperModel
 
-        model = WhisperModel(WHISPER_MODELS[name], device=DEVICE, compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "float16"))
+        model = WhisperModel(WHISPER_MODELS[name], device=DEVICE, compute_type=COMPUTE_TYPE)
         start = time.time()
         texts = []
         for a in audio:

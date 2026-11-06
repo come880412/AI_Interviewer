@@ -1,6 +1,6 @@
 import wave
 
-from stt_common import TurnAudio, hotword_fixer, save_wav
+from interviewer.speech.stt_common import TurnAudio, hotword_fixer, save_wav
 
 
 def test_hotword_fixer_restores_split_and_recased_terms():

@@ -19,8 +19,8 @@ from pipecat.services.whisper.stt import WhisperSTTService
 from pipecat.utils.time import time_now_iso8601
 from pipecat.utils.types import assert_given
 
-from chinese import chinese_punctuation, tidy_spaces, to_traditional
-from stt_common import TurnAudio, hotword_fixer
+from interviewer.speech.chinese import chinese_punctuation, tidy_spaces, to_traditional
+from interviewer.speech.stt_common import TurnAudio, hotword_fixer
 
 # About 100 tokens of recent conversation. Whisper's prompt window is 223 tokens, shared with hotwords.
 CONTEXT_CHARS = 400
@@ -54,10 +54,11 @@ class InterviewWhisperSTT(WhisperSTTService):
     """WhisperSTTService that carries conversation context across segments and filters hallucinations."""
 
     def __init__(self, *, min_avg_logprob: float = DEFAULT_MIN_AVG_LOGPROB, hotword_list: list[str] | None = None,
-                 chinese: bool = False, **kwargs):
+                 chinese: bool = False, joined: bool = False, **kwargs):
         super().__init__(**kwargs)
         self._min_avg_logprob = min_avg_logprob
-        self._chinese = chinese  # Mandarin: convert to Taiwan Traditional and join pieces without spaces
+        self._chinese = chinese  # Mandarin: convert to Taiwan Traditional and use full-width punctuation
+        self._joined = joined or chinese  # Mandarin, Japanese: join pieces without spaces
         self._context = ""
         self._hotword_seq = WORD.findall((assert_given(self._settings.hotwords) or "").lower())
         self._fix = hotword_fixer(hotword_list or [])
@@ -151,7 +152,9 @@ class InterviewWhisperSTT(WhisperSTTService):
                 kept.append(segment.text.strip())
         text = " ".join(kept)
         if self._chinese:
-            text = tidy_spaces(chinese_punctuation(to_traditional(text)))
+            text = chinese_punctuation(to_traditional(text))
+        if self._joined:
+            text = tidy_spaces(text)
         text = self._fix(text)
 
         await self.stop_processing_metrics()

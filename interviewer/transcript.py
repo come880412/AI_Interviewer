@@ -16,7 +16,9 @@ from pathlib import Path
 
 from loguru import logger
 
-TRANSCRIPTS_DIR = Path(os.getenv("TRANSCRIPTS_DIR", "transcripts"))
+from interviewer import settings
+
+TRANSCRIPTS_DIR = settings.project_path(os.getenv("TRANSCRIPTS_DIR", "transcripts"))
 
 SPEAKER_LINE = re.compile(r"^\*\*(Interviewer|Candidate):\*\* ")
 INTERVIEW_TAG = re.compile(r"<!-- interview: (.+?) -->")
@@ -69,8 +71,9 @@ def read_transcript(path: str | Path) -> SavedTranscript:
                 turn.at, turn.duration = float(timing.group(1)), float(timing.group(2))
                 turn.pause = float(timing.group(3)) if timing.group(3) else None
             turns.append(turn)
-        elif block and turns and not block.startswith(("#", "<!--")):
-            # A reply that itself contained a blank line; its timing comment ends the last paragraph.
+        elif block and turns and (_open_fence(turns[-1].text) or not block.startswith(("#", "<!--"))):
+            # A turn that itself contained a blank line; its timing comment ends the last paragraph. Inside a code
+            # block, a paragraph starting with "#" is code (a comment, an #include), not a heading.
             timing = TIMING_TAG.search(block)
             if timing:
                 block = block[: timing.start()]
@@ -88,6 +91,22 @@ def read_transcript(path: str | Path) -> SavedTranscript:
     )
 
 
+def saved_transcripts(folder: Path, newest_first: bool = False) -> list[SavedTranscript]:
+    """Every transcript in a folder, by start time. One that can't be read (hand-edited or cut off) is skipped
+    with a warning instead of breaking the pages that list them."""
+    result = []
+    for path in sorted(folder.glob("*-transcript.md"), reverse=newest_first):
+        try:
+            result.append(read_transcript(path))
+        except (OSError, ValueError) as e:  # ValueError covers bad JSON and bad UTF-8
+            logger.warning(f"Skipping a transcript that can't be read: {path} ({e})")
+    return result
+
+
+def _open_fence(text: str) -> bool:
+    return len(re.findall(r"^```", text, re.M)) % 2 == 1
+
+
 def _estimate_elapsed(path: Path) -> float:
     """Older transcripts have no elapsed marker: use the start time in the file name and the last write."""
     try:
@@ -95,6 +114,13 @@ def _estimate_elapsed(path: Path) -> float:
     except ValueError:
         return 0.0
     return max(0.0, path.stat().st_mtime - started.timestamp())
+
+
+def write_atomic(path: Path, text: str):
+    """Writes through a temporary file, so a crash mid-write never leaves a cut-off report or resume."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
 
 
 def sibling(transcript_path: Path, kind: str, suffix: str = ".md") -> Path:
@@ -114,16 +140,23 @@ class Transcript:
             return
         folder = TRANSCRIPTS_DIR / interview
         folder.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M")
-        self.path = folder / f"{stamp}-transcript.md"
         self.turns = []
         self.prior_elapsed = 0.0
         self.session = session or {"mode": "full"}
         # "--" would end the HTML comment early; the JSON escape reads back as the same text.
         tag = json.dumps(self.session, ensure_ascii=False).replace("--", "-\\u002d")
-        self.path.write_text(
-            f"# {title}\n\n<!-- interview: {interview} -->\n\n<!-- session: {tag} -->\n\n", encoding="utf-8"
-        )
+        header = f"# {title}\n\n<!-- interview: {interview} -->\n\n<!-- session: {tag} -->\n\n"
+        # The name starts with the start time to the minute, which is what the pages read (older names stop
+        # there); seconds keep two sessions in one minute apart, and "x" never overwrites an existing file.
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        for n in range(1, 100):
+            self.path = folder / (f"{stamp}-transcript.md" if n == 1 else f"{stamp}-{n}-transcript.md")
+            try:
+                with self.path.open("x", encoding="utf-8") as f:
+                    f.write(header)
+                break
+            except FileExistsError:
+                continue
 
     @property
     def lines(self) -> list[str]:

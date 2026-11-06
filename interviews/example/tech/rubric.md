@@ -1,21 +1,21 @@
-# 評分標準：Acme Vision 電腦視覺工程師，技術面試（範例）
+# Rubric: Acme Vision, Computer Vision Engineer, technical screen (example)
 
-## 經歷深挖
-- 5：主動講出自己親手做的部分、具體數字和取捨理由；追問到細節也答得出來，並能連到這個職缺的需求。
-- 3：專案和數字都有，但個人貢獻或決策理由要靠追問才出來；部分追問只答到表面。
-- 1：說不清自己做了什麼，沒有數字，或被追問就答不下去。
+## Experience deep dive
+- 5: Says up front what they built themselves, with concrete numbers and the reasons for their trade-offs; answers detailed follow-ups and ties the work to this role.
+- 3: The projects and numbers are there, but their own part or the reasons behind decisions come out only when asked; some follow-ups get surface answers.
+- 1: Can't say clearly what they did, gives no numbers, or stalls on follow-ups.
 
-## 視覺基礎
-- 5：相機模型、homography、立體視差與深度誤差、偵測指標、追蹤配對、量化都答得正確且能推導；不確定時會推理而不是放棄。
-- 3：大部分概念方向正確，但有一兩題公式或細節錯誤，或只答到一半。
-- 1：多題答錯或直接說不知道，基礎概念不清楚。
+## Vision fundamentals
+- 5: Camera models, homography, stereo disparity and depth error, detection metrics, track association and quantization are all correct and derived, not recited; reasons it out when unsure instead of giving up.
+- 3: Mostly right, with one or two wrong formulas or details, or answers that stop halfway.
+- 1: Several wrong answers or "I don't know"; the basics are not clear.
 
-## 模型設計
-- 5：先釐清需求，再完整走過資料、標註、模型、評估指標和邊緣部署限制，並說明上線與監控方式。
-- 3：結構大致完整，但缺少一兩塊，需要追問才補上。
-- 1：只講零散的想法，沒有結構。
+## Model design
+- 5: Clarifies the requirements first, then covers data, labeling, the model, evaluation metrics and edge deployment limits, and says how they would ship and monitor it.
+- 3: Mostly complete, but one or two parts are missing until asked.
+- 1: Scattered ideas with no structure.
 
-## 溝通與行為
-- 5：先講結論再展開，用 STAR 講出具體情境、自己的行動和量化結果。
-- 3：內容有，但結構或結果不夠清楚。
-- 1：回答空泛或離題。
+## Communication and behavior
+- 5: Leads with the answer, then the details; tells specific stories with their own actions and measurable results (STAR).
+- 3: The content is there, but the structure or the results are unclear.
+- 1: Vague or off-topic answers.

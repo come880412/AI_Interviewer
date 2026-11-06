@@ -10,6 +10,9 @@ Interviews are organized by company, one subfolder per round:
 A file is looked up in the round folder first, then the company folder (one with company.yaml);
 the resume finally falls back to profile/resume.md. A single folder with a config.yaml directly under
 interviews/ also works as an interview on its own.
+
+The prompt templates in prompts/ can be replaced for one round or one company: a file with the same name in
+interviews/acme/tech/prompts/ (or interviews/acme/prompts/) is used instead. See OVERRIDABLE_PROMPTS.
 """
 
 import os
@@ -19,9 +22,10 @@ from pathlib import Path
 
 import yaml
 
-from transcript import TRANSCRIPTS_DIR, read_transcript
+from interviewer import settings
+from interviewer.transcript import TRANSCRIPTS_DIR, read_transcript
 
-ROOT = Path(__file__).parent
+ROOT = settings.ROOT
 PROMPTS_DIR = ROOT / "prompts"
 INTERVIEWS_DIR = ROOT / "interviews"
 PROFILE_DIR = ROOT / "profile"
@@ -40,18 +44,64 @@ NOT_PROVIDED = "(not provided)"
 REQUIRED_KEYS = ["company", "role_title", "interviewer_name", "interviewer_title", "round_name"]
 KNOWN_KEYS = set(REQUIRED_KEYS) | {
     "duration_minutes", "difficulty", "feedback_language", "voice", "voice_language", "voice_clone", "stt_hotwords",
-    "avatar", "avatar_body", "pocket_voice", "interview_language",
+    "avatar", "avatar_body", "pocket_voice", "interview_language", "coding",
 }
-# interview_language values, and how the prompts name each language.
-LANGUAGES = {"en": "English", "zh-TW": "Mandarin Chinese (Traditional Chinese as used in Taiwan)"}
+# Prompt templates a round or company may replace with its own copy in a prompts/ subfolder.
+OVERRIDABLE_PROMPTS = {
+    "interviewer.md": "how the interviewer behaves",
+    "feedback.md": "how the report is written",
+    "coding_rubric.md": "the rubric for coding interviews",
+}
+# A round's defaults for the setup page's coding filters (config.yaml "coding:"); the page still lets you change them.
+CODING_DEFAULT_KEYS = {"language", "difficulties", "tags", "minutes", "rating", "statement", "interview_only"}
+
+
+@dataclass(frozen=True)
+class InterviewLanguage:
+    """What an interview language needs: how the prompts name it, and how speech recognition and the voice
+    handle it."""
+    name: str  # how the prompts name the language
+    report: str  # the report language when feedback_language is not set
+    whisper: str  # Whisper's language code
+    voice: str  # the default Kokoro voice
+    voice_prefixes: tuple[str, ...]  # the Kokoro voices that speak it, by name prefix
+    stall: str  # said aloud while a crashed Claude CLI restarts
+    parakeet: bool = False  # Parakeet TDT v3 understands it (English and European languages)
+    joined: bool = False  # written without spaces between words, so recognized pieces are joined without them
+    stt_prompt: str | None = None  # sets Whisper's script and style for the first answer
+
+
+# interview_language values. English and Mandarin are the most used and tested; the others use Kokoro's own
+# voices for the language (Japanese through misaki's Japanese G2P, see speech/japanese_tts.py).
+LANGUAGE_SPECS = {
+    "en": InterviewLanguage("English", "English", "en", "am_michael", ("af_", "am_", "bf_", "bm_"),
+                            "Sorry, give me just a second.", parakeet=True),
+    "zh-TW": InterviewLanguage("Mandarin Chinese (Traditional Chinese as used in Taiwan)", "Traditional Chinese (Taiwan)",
+                               "zh", "zm_010", ("zm_", "zf_"), "不好意思，請稍等一下。", joined=True,
+                               stt_prompt="以下是一場中文技術面試的回答，夾雜英文術語，例如 GRU、MLP、INT8、latency。"),
+    "ja": InterviewLanguage("Japanese", "Japanese", "ja", "jm_kumo", ("jf_", "jm_"), "すみません、少々お待ちください。",
+                            joined=True, stt_prompt="以下は技術面接での回答です。INT8、latency などの英語の用語が混ざります。"),
+    "es": InterviewLanguage("Spanish", "Spanish", "es", "em_alex", ("ef_", "em_"), "Perdón, dame un segundo.", parakeet=True),
+    "fr": InterviewLanguage("French", "French", "fr", "ff_siwis", ("ff_",), "Pardon, une petite seconde.", parakeet=True),
+    "it": InterviewLanguage("Italian", "Italian", "it", "im_nicola", ("if_", "im_"), "Scusa, dammi un secondo.", parakeet=True),
+    "pt-BR": InterviewLanguage("Brazilian Portuguese", "Brazilian Portuguese", "pt", "pm_alex", ("pf_", "pm_"),
+                               "Desculpe, só um segundo.", parakeet=True),
+    "hi": InterviewLanguage("Hindi", "Hindi", "hi", "hm_omega", ("hf_", "hm_"), "माफ़ कीजिए, एक सेकंड।"),
+}
+# How the prompts name each interview_language.
+LANGUAGES = {code: spec.name for code, spec in LANGUAGE_SPECS.items()}
 LANGUAGE_ALIASES = {"english": "en", "en-us": "en", "en-gb": "en", "zh": "zh-TW", "zh-tw": "zh-TW", "zh_tw": "zh-TW",
-                    "chinese": "zh-TW", "mandarin": "zh-TW", "中文": "zh-TW"}
+                    "chinese": "zh-TW", "mandarin": "zh-TW", "中文": "zh-TW", "japanese": "ja", "日本語": "ja",
+                    "spanish": "es", "español": "es", "french": "fr", "français": "fr", "italian": "it",
+                    "italiano": "it", "portuguese": "pt-BR", "pt": "pt-BR", "pt-br": "pt-BR", "português": "pt-BR",
+                    "hindi": "hi", "हिन्दी": "hi"}
 # The report language when neither the company nor the round sets feedback_language.
-DEFAULT_FEEDBACK_LANGUAGE = {"en": "English", "zh-TW": "Traditional Chinese (Taiwan)"}
+DEFAULT_FEEDBACK_LANGUAGE = {code: spec.report for code, spec in LANGUAGE_SPECS.items()}
 
 
 def language_code(value) -> str | None:
-    """"en" or "zh-TW" for an interview_language setting (missing means English), or None if unknown."""
+    """The interview_language code ("en", "zh-TW", "ja", ...) for a setting (missing means English), or None if
+    unknown."""
     text = str(value or "en").strip()
     return text if text in LANGUAGES else LANGUAGE_ALIASES.get(text.lower())
 # Used when neither the round nor the company folder has its own copy.
@@ -106,10 +156,16 @@ class InterviewConfig:
     avatar: str = "david"  # web/avatars/<avatar>.glb on the video interview page
     avatar_body: str = "M"  # "M" or "F", for the avatar's posture and gestures
     language: str = "en"  # "en" or "zh-TW" (interview_language)
+    folders: list[Path] = field(default_factory=list)  # the round folder, then its company folder
+    coding: dict = field(default_factory=dict)  # defaults for coding sessions (config.yaml "coding:")
 
     @property
     def chinese(self) -> bool:
         return self.language == "zh-TW"
+
+    @property
+    def language_spec(self) -> InterviewLanguage:
+        return LANGUAGE_SPECS[self.language]
 
     @classmethod
     def load(cls, folder: str | Path) -> "InterviewConfig":
@@ -153,10 +209,21 @@ class InterviewConfig:
             avatar=str(raw.get("avatar", "david")),
             avatar_body="F" if str(raw.get("avatar_body", "M")).upper().startswith("F") else "M",
             language=language,
+            folders=search,
+            coding={k: v for k, v in (raw.get("coding") or {}).items() if k in CODING_DEFAULT_KEYS}
+            if isinstance(raw.get("coding"), dict) else {},
         )
 
+    def prompt_path(self, template_name: str) -> Path:
+        """This round's or company's own copy of a prompt template, otherwise the shared one in prompts/."""
+        if template_name in OVERRIDABLE_PROMPTS:
+            for folder in self.folders:
+                if (folder / "prompts" / template_name).exists():
+                    return folder / "prompts" / template_name
+        return PROMPTS_DIR / template_name
+
     def render(self, template_name: str, **extra: str) -> str:
-        template = (PROMPTS_DIR / template_name).read_text(encoding="utf-8")
+        template = self.prompt_path(template_name).read_text(encoding="utf-8")
         values = {**self.variables, **extra}
 
         def replace(match: re.Match) -> str:
@@ -204,9 +271,15 @@ def validate(folder: Path) -> list[dict]:
         add("warning", "difficulty 只能是 standard 或 tough")
     language = language_code(raw.get("interview_language"))
     if not language:
-        add("error", "interview_language 只能是 en（英文）或 zh-TW（中文）")
-    elif language == "zh-TW" and (raw.get("voice_clone") or raw.get("pocket_voice")):
-        add("warning", "Pocket TTS 不會說中文，中文面試會忽略 voice_clone / pocket_voice，改用 Kokoro 中文聲音")
+        add("error", "interview_language 只能是：" + "、".join(f"{c}（{s.name}）" for c, s in LANGUAGE_SPECS.items()))
+    else:
+        spec = LANGUAGE_SPECS[language]
+        if language != "en" and (raw.get("voice_clone") or raw.get("pocket_voice")):
+            add("warning", f"Pocket TTS 只會說英文，{spec.name} 面試會忽略 voice_clone / pocket_voice，改用 Kokoro 的聲音")
+        voice = str(raw.get("voice") or spec.voice)
+        if not voice.startswith(spec.voice_prefixes):
+            add("warning", f"聲音 {voice} 不會說 {spec.name}，會改用 {spec.voice}；"
+                f"這個語言的聲音名稱以 {'、'.join(spec.voice_prefixes)} 開頭")
 
     search = [folder, company] if company else [folder]
     if raw.get("voice_clone") and not any((d / raw["voice_clone"]).exists() for d in search):
@@ -223,7 +296,49 @@ def validate(folder: Path) -> list[dict]:
             add("warning", message)
     if not any(path.exists() for _, _, path in resume_layers(folder)):
         add("warning", "沒有履歷，面試官無法針對你的經歷提問")
+    _check_coding_defaults(raw.get("coding"), add)
+    _check_prompt_overrides(search, add)
     return issues
+
+
+def _check_coding_defaults(coding, add):
+    if coding is None:
+        return
+    if not isinstance(coding, dict):
+        add("error", "coding 要寫成設定清單，例如 coding: {language: cpp, difficulties: [medium]}")
+        return
+    for key in sorted(set(coding) - CODING_DEFAULT_KEYS):
+        add("warning", f"coding 裡不認得的設定 {key}，可以用：{', '.join(sorted(CODING_DEFAULT_KEYS))}")
+    if coding.get("language", "python") not in ("python", "cpp"):
+        add("warning", "coding.language 只能是 python 或 cpp")
+    difficulties = coding.get("difficulties", [])
+    if not isinstance(difficulties, list) or not set(difficulties) <= {"easy", "medium", "hard"}:
+        add("warning", "coding.difficulties 要是 easy、medium、hard 的清單")
+    if coding.get("minutes", 45) not in (15, 30, 45, 60):
+        add("warning", "coding.minutes 只能是 15、30、45 或 60")
+    if coding.get("statement", "interview") not in ("interview", "leetcode"):
+        add("warning", "coding.statement 只能是 interview 或 leetcode")
+    rating = coding.get("rating")
+    if rating is not None and not (isinstance(rating, list) and len(rating) == 2):
+        add("warning", "coding.rating 要寫成 [下限, 上限]，例如 [1600, 1900]；不限的一邊寫 null")
+
+
+def _check_prompt_overrides(folders: list[Path], add):
+    for folder in folders:
+        prompts = folder / "prompts"
+        if not prompts.is_dir():
+            continue
+        for path in sorted(prompts.iterdir()):
+            if path.name not in OVERRIDABLE_PROMPTS:
+                add("warning", f"{interview_name(folder)}/prompts/{path.name} 不會被使用；可以覆蓋的只有 "
+                    + "、".join(OVERRIDABLE_PROMPTS))
+            elif path.name == "interviewer.md":
+                text = path.read_text(encoding="utf-8")
+                # The rest of the program relies on these: the session's mode and the hang-up token.
+                for needed in ("{{session_mode}}", "[[END]]"):
+                    if needed not in text:
+                        add("error", f"自訂的 {interview_name(folder)}/prompts/interviewer.md 少了 {needed}；"
+                            "請從 prompts/interviewer.md 複製一份再修改")
 
 
 def list_interviews() -> list[str]:

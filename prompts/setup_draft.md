@@ -35,7 +35,7 @@ English. "- " bullets of facts about the company, its product, team and way of w
 </company_info>
 
 <hotwords>
-One term per line, 15 to 30 terms: company and product names, acronyms and technical terms from the JD and the resume that speech recognition is likely to mishear. No bullets or commas.
+One term per line, 8 to 15 terms: only the company and product names, acronyms and rare technical terms from the JD and the resume that speech recognition is most likely to mishear. Leave out ordinary words a recognizer already knows (observability, database, latency). No bullets or commas.
 </hotwords>
 
 Output only these five tagged sections.

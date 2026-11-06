@@ -5,8 +5,8 @@ answering, and speaking rate. The feedback report quotes these instead of guessi
 import statistics
 from dataclasses import dataclass
 
-from chinese import has_chinese, spoken_units
-from transcript import Turn
+from interviewer.speech.chinese import has_chinese, spoken_units
+from interviewer.transcript import Turn
 
 
 @dataclass
@@ -28,7 +28,8 @@ def answers(turns: list[Turn]) -> list[Answer]:
         timed = [t for t in current if t.at is not None and t.duration is not None]
         if timed:
             seconds = timed[-1].at + timed[-1].duration - timed[0].at
-            text = " ".join(t.text for t in current)
+            # Notepad and code snapshots are written as candidate turns but were never spoken.
+            text = " ".join(t.text for t in current if not t.text.startswith(("[Notepad", "[Shared notepad")))
             result.append(Answer(question, text, seconds, current[0].pause, spoken_units(text)))
 
     for turn in turns:
@@ -58,7 +59,7 @@ def delivery_summary(turns: list[Turn]) -> str:
     ]
     rates = [a.words / a.seconds * 60 for a in items if a.seconds >= 10]
     if rates:
-        unit = ("units per minute, counting each Chinese character and each English word as one"
+        unit = ("units per minute, counting each Chinese or Japanese character and each English word as one"
                 if any(has_chinese(a.text) for a in items) else "words per minute")
         lines.append(f"Speaking rate: median {statistics.median(rates):.0f} {unit} (from the transcript, which drops some filler words)")
     paused = [a for a in items if a.pause is not None]

@@ -12,8 +12,10 @@ from datetime import datetime
 from pathlib import Path
 from xml.etree import ElementTree
 
-from interview_config import INTERVIEWS_DIR, PROFILE_DIR, PROMPTS_DIR, list_interviews, resume_layers
-from llm import complete
+from interviewer import settings  # noqa: F401  (loads .env before the settings below are read)
+from interviewer.config import INTERVIEWS_DIR, PROFILE_DIR, PROMPTS_DIR, list_interviews, resume_layers
+from interviewer.llm import complete
+from interviewer.transcript import write_atomic
 
 RESUME_MODEL = os.getenv("FEEDBACK_MODEL", os.getenv("LLM_MODEL", "claude-opus-5-5"))
 BACKUP_DIR = PROFILE_DIR / "backups"
@@ -103,5 +105,5 @@ def save(target: str, text: str) -> Path:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         (BACKUP_DIR / f"resume-{label}-{stamp}.md").write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.strip() + "\n", encoding="utf-8")
+    write_atomic(path, text.strip() + "\n")
     return path

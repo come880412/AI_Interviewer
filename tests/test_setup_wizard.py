@@ -1,10 +1,10 @@
 import pytest
 import yaml
 
-import interview_config
-import setup_wizard
+from interviewer import config as interview_config
+from interviewer import setup_wizard
 from conftest import write_yaml
-from setup_wizard import SetupError, create, slugify
+from interviewer.setup_wizard import SetupError, create, slugify
 
 
 @pytest.fixture(autouse=True)
@@ -67,6 +67,7 @@ def test_create_new_company(wizard_dirs):
     assert config == {
         "interviewer_name": "Dana", "interviewer_title": "Staff Engineer", "round_name": "Tech Screen",
         "duration_minutes": 40, "difficulty": "standard", "voice": "am_michael", "voice_language": "en-us",
+        "avatar": "david", "avatar_body": "M",
     }  # hotwords live in company.yaml only
     assert (round_dir / "round_info.md").exists() and (round_dir / "question_bank.md").exists()
     assert not (round_dir / "rubric.md").exists()  # empty drafts are not written
@@ -84,6 +85,41 @@ def test_create_with_explicit_slugs_and_british_voice(wizard_dirs):
     config = read_yaml(wizard_dirs.interviews / "acme" / "hm" / "config.yaml")
     assert config["voice"] == "bf_emma" and config["voice_language"] == "en-gb"
     assert config["duration_minutes"] == 45
+
+
+@pytest.mark.parametrize("language, voice, avatar, expected", [
+    ("en", "af_heart", "brunette", {"voice": "af_heart", "voice_language": "en-us", "avatar": "brunette", "avatar_body": "F"}),
+    ("en", "zf_001", "nobody", {"voice": "am_michael", "avatar": "david", "avatar_body": "M"}),  # not offered: defaults
+    ("zh-TW", "zf_001", "brunette", {"voice": "zf_001", "interview_language": "zh-TW", "avatar_body": "F"}),
+    ("zh-TW", "af_heart", "david", {"voice": "zm_010", "avatar": "david"}),  # an English voice can't speak Mandarin
+    ("ja", "jf_alpha", "brunette", {"voice": "jf_alpha", "interview_language": "ja"}),
+    ("es", "am_michael", "david", {"voice": "em_alex", "interview_language": "es"}),
+    ("pt-BR", "pf_dora", "david", {"voice": "pf_dora", "interview_language": "pt-BR"}),
+])
+def test_chosen_voice_and_avatar(wizard_dirs, language, voice, avatar, expected):
+    create(fields(interview_language=language, voice=voice, avatar=avatar))
+    config = read_yaml(wizard_dirs.interviews / "acme-robotics" / "tech-screen" / "config.yaml")
+    assert expected.items() <= config.items()
+
+
+def test_files_written_by_the_wizard_have_english_comments(wizard_dirs):
+    create(fields())
+    for path in (wizard_dirs.interviews / "acme-robotics" / "company.yaml",
+                 wizard_dirs.interviews / "acme-robotics" / "tech-screen" / "config.yaml"):
+        assert path.read_text(encoding="utf-8").isascii()
+
+
+def test_draft_keeps_a_short_hotword_list(monkeypatch):
+    import asyncio
+    words = "\n".join(f"Term{i}" for i in range(40)) + "\nTerm1"
+    reply = f"<round_info>info</round_info><question_bank>q</question_bank><hotwords>{words}</hotwords>"
+
+    async def complete(prompt, model):
+        return reply
+
+    monkeypatch.setattr(setup_wizard, "complete", complete)
+    result = asyncio.run(setup_wizard.draft({"jd": "A JD.", "interview_language": "en"}))
+    assert result["hotwords"] == [f"Term{i}" for i in range(setup_wizard.MAX_HOTWORDS)]
 
 
 def test_add_round_to_existing_company_keeps_only_new_hotwords(wizard_dirs):
@@ -146,3 +182,27 @@ def test_companies_listing(wizard_dirs):
     assert result[0]["slug"] == "acme" and result[0]["company"] == "Acme Robotics"
     assert result[0]["rounds"] == ["hm", "tech"]
     assert result[0]["jd"] == "The JD.\n"
+
+
+def test_a_new_company_never_overwrites_files_already_in_its_folder(wizard_dirs):
+    folder = wizard_dirs.interviews / "acme-robotics"
+    folder.mkdir()
+    (folder / "jd.md").write_text("My edited JD.", encoding="utf-8")
+    create(fields())
+    assert (folder / "jd.md").read_text(encoding="utf-8") == "My edited JD."
+    assert (folder / "company_info.md").exists()  # new files are still written
+
+
+def test_a_single_folder_interview_is_not_turned_into_a_company(wizard_dirs):
+    folder = wizard_dirs.interviews / "acme-robotics"
+    folder.mkdir()
+    (folder / "config.yaml").write_text("company: Acme\n", encoding="utf-8")
+    with pytest.raises(SetupError, match="已經是一場面試"):
+        create(fields())
+    assert not (folder / "tech-screen").exists()
+
+
+@pytest.mark.parametrize("language, expected", [("en", "English"), ("zh-TW", "Traditional Chinese (Taiwan)")])
+def test_report_language_follows_the_interview_language_by_default(wizard_dirs, language, expected):
+    create(fields(feedback_language="", interview_language=language))
+    assert read_yaml(wizard_dirs.interviews / "acme-robotics" / "company.yaml")["feedback_language"] == expected

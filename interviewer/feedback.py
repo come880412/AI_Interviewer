@@ -1,14 +1,14 @@
 """Turns an interview transcript into a feedback report with Claude.
 
 Runs automatically when an interview ends, or manually:
-    python feedback.py transcripts/example/tech/20261023-2130-transcript.md
+    python -m interviewer.feedback transcripts/example/tech/20261023-2130-transcript.md
 The interview folder is read from the transcript; pass a name as the second argument to override it.
 
 Writes two files next to the transcript: *-feedback.md (the report) and *-scores.json (the structured
 summary that the progress page and the next session's interviewer use).
 
 For reports written before scores existed, extract them from the existing report without redoing it:
-    python feedback.py --scores-only transcripts/example/tech/*-transcript.md
+    python -m interviewer.feedback --scores-only transcripts/example/tech/*-transcript.md
 """
 
 import asyncio
@@ -18,15 +18,15 @@ import re
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
 from loguru import logger
 
-from analysis import delivery_summary
-from interview_config import InterviewConfig, pick_interview
-from llm import complete
-from transcript import SavedTranscript, read_transcript, sibling
+from interviewer import settings  # noqa: F401  (loads .env before the settings below are read)
+from interviewer import coding
+from interviewer.analysis import delivery_summary
+from interviewer.config import PROMPTS_DIR, InterviewConfig, pick_interview
+from interviewer.llm import complete
+from interviewer.transcript import SavedTranscript, read_transcript, sibling, write_atomic
 
-load_dotenv(override=True)
 
 FEEDBACK_MODEL = os.getenv("FEEDBACK_MODEL", os.getenv("LLM_MODEL", "claude-opus-5-5"))
 SCORES_BLOCK = re.compile(r"<scores>\s*(.*?)\s*</scores>", re.DOTALL)
@@ -34,6 +34,8 @@ SCORES_BLOCK = re.compile(r"<scores>\s*(.*?)\s*</scores>", re.DOTALL)
 
 def session_info(saved: SavedTranscript) -> str:
     minutes = round(saved.elapsed_secs / 60)
+    if coding.is_coding(saved.session):
+        return coding.feedback_session_info(saved.session, saved.turns, minutes)
     if saved.session.get("mode") == "drill":
         text = (f"a focused practice drill on \"{saved.session.get('topic')}\", planned for "
                 f"{saved.session.get('minutes')} minutes, about {minutes} minutes used. Score only the areas this drill covered.")
@@ -87,6 +89,11 @@ def split_scores(report: str) -> tuple[str, dict | None]:
         return body, None
 
 
+def session_rubric(cfg: InterviewConfig, saved: SavedTranscript) -> str:
+    """Coding interviews are scored on their own rubric, not the round's."""
+    return coding.rubric(cfg) if coding.is_coding(saved.session) else cfg.variables.get("rubric", "")
+
+
 async def generate_feedback(cfg: InterviewConfig, saved: SavedTranscript) -> Path:
     prompt = cfg.render(
         "feedback.md",
@@ -94,12 +101,13 @@ async def generate_feedback(cfg: InterviewConfig, saved: SavedTranscript) -> Pat
         feedback_language=cfg.variables.get("feedback_language", "English"),
         session_info=session_info(saved),
         delivery_stats=delivery_summary(saved.turns),
+        rubric=session_rubric(cfg, saved),
     )
     report, scores = split_scores(await complete(prompt, FEEDBACK_MODEL))
     out = sibling(saved.path, "feedback")
-    out.write_text(report + "\n", encoding="utf-8")
+    write_atomic(out, report + "\n")
     if scores:
-        sibling(saved.path, "scores", ".json").write_text(json.dumps(scores, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_atomic(sibling(saved.path, "scores", ".json"), json.dumps(scores, ensure_ascii=False, indent=2))
     return out
 
 
@@ -108,14 +116,16 @@ async def extract_scores(cfg: InterviewConfig, saved: SavedTranscript) -> Path |
     report_path = sibling(saved.path, "feedback")
     if not report_path.exists():
         return None
-    template = (Path(__file__).parent / "prompts" / "feedback.md").read_text(encoding="utf-8")
-    # The example block, not the earlier sentence that mentions the tags.
-    shape = re.search(r"<scores>\n\{.*?\}\n</scores>.*?\n\n.*?\n", template, re.DOTALL).group(0)
+    # The example block, not the earlier sentence that mentions the tags. A round's own feedback.md may not have
+    # one; the shared prompt always does.
+    pattern = r"<scores>\n\{.*?\}\n</scores>.*?\n\n.*?\n"
+    found = re.search(pattern, cfg.prompt_path("feedback.md").read_text(encoding="utf-8"), re.DOTALL)
+    shape = (found or re.search(pattern, (PROMPTS_DIR / "feedback.md").read_text(encoding="utf-8"), re.DOTALL)).group(0)
     prompt = (
         "Below are a mock interview transcript and the feedback report already written for it. Summarize the report "
         f"as JSON in exactly this shape, with text values in {cfg.variables.get('feedback_language', 'English')}:\n\n"
         f"{shape}\n\nUse these rubric area names exactly, with null for areas the report did not score:\n"
-        f"{cfg.variables.get('rubric')}\n\nTake verdict, scores, strengths and weaknesses from the report; list the "
+        f"{session_rubric(cfg, saved)}\n\nTake verdict, scores, strengths and weaknesses from the report; list the "
         "main questions from the transcript. Output only the <scores> block.\n\n"
         f"<report>\n{report_path.read_text(encoding='utf-8')}\n</report>\n\n<transcript>\n" + "\n\n".join(saved.lines) + "\n</transcript>"
     )
@@ -123,7 +133,7 @@ async def extract_scores(cfg: InterviewConfig, saved: SavedTranscript) -> Path |
     if not scores:
         return None
     out = sibling(saved.path, "scores", ".json")
-    out.write_text(json.dumps(scores, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_atomic(out, json.dumps(scores, ensure_ascii=False, indent=2))
     return out
 
 
@@ -132,7 +142,7 @@ async def _main():
     scores_only = "--scores-only" in args
     args = [a for a in args if a != "--scores-only"]
     if not args:
-        print("usage: python feedback.py [--scores-only] <transcript.md>... [--interview NAME]")
+        print("usage: python -m interviewer.feedback [--scores-only] <transcript.md>... [--interview NAME]")
         sys.exit(1)
     interview = None
     if "--interview" in args:

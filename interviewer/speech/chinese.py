@@ -7,7 +7,9 @@ and English words. The interviewer's Chinese voice is in chinese_tts.py.
 
 import re
 
-CJK = r"㐀-鿿豈-﫿"
+# Han characters (CJK Unified Ideographs and Extension A, Compatibility Ideographs), plus Japanese kana:
+# spacing and speaking rate treat Japanese the same way.
+CJK = "\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff"
 # Full-width punctuation that sits against Chinese text without spaces.
 CJK_PUNCT = r"　-〿＀-￯"
 CJK_CHAR = re.compile(f"[{CJK}]")

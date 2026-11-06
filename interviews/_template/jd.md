@@ -1,1 +1,1 @@
-（把職缺描述整段貼在這裡）
+(Paste the whole job description here.)

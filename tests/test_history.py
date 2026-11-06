@@ -1,6 +1,6 @@
 import json
 
-import history
+from interviewer import history
 
 
 def make_session(dirs, interview, stamp, scores=None, session=None, raw_scores=None):

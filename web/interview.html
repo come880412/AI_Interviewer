@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>面試中</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%232f5bd3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 <style>
   html, body { height: 100%; }
@@ -57,7 +58,7 @@
     <b><i class="speaking-dot" id="speaking-dot"></i><span id="who"></span></b>
     <span id="who-sub"></span>
   </div>
-  <div class="captions" aria-live="polite">
+  <div class="captions" aria-live="off">
     <div class="caption" id="cap-bot" hidden><small>面試官</small><span id="cap-bot-text"></span></div>
     <div class="caption you" id="cap-you" hidden><small>系統聽到你說</small><span id="cap-you-text"></span></div>
   </div>
@@ -75,13 +76,13 @@
     <button type="button" class="ghost" id="pause" disabled>暫停</button>
     <button type="button" class="ghost" id="mute" disabled>麥克風靜音</button>
     <span class="meter" title="你的麥克風音量"><i id="meter"></i></span>
-    <span id="status">準備好就按「開始面試」。請戴耳機。</span>
+    <span id="status" role="status">準備好就按「開始面試」。請戴耳機。</span>
   </div>
   <div class="group">
     <label title="聲音延遲多少再播放，讓嘴型和聲音對齊。嘴型比聲音慢就調大，比聲音快就調小。">嘴型延遲
       <input type="range" id="delay" min="0" max="300" step="10" value="100"><span id="delay-value">100 ms</span></label>
     <label><input type="checkbox" id="show-captions" checked> 字幕</label>
-    <a href="/notepad" target="_blank" rel="noopener">共用筆記板</a>
+    <a href="/notepad" target="_blank" rel="noopener" id="notepad-link">共用筆記板</a>
     <a href="/client/" id="voice-only">純語音頁</a>
     <a href="/">設定頁</a>
     <button type="button" class="ghost" id="end" disabled>結束並產生報告</button>
@@ -115,15 +116,31 @@ function recall(key) { try { return localStorage.getItem(key); } catch { return 
 const view = await fetch("/api/interview-view").then((r) => r.ok ? r.json() : null).catch(() => null);
 if (view) {
   $("who").textContent = view.interviewer_name;
-  const mode = view.session.mode === "drill" ? `${view.session.coach ? "教練模式" : "專項練習"}：${view.session.topic}` : (view.resuming ? "接續面試" : view.round);
+  const coding = view.session.mode === "coding";
+  const mode = coding ? "Coding 面試"
+    : view.session.mode === "drill" ? `${view.session.coach ? "教練模式" : "專項練習"}：${view.session.topic}` : (view.resuming ? "接續面試" : view.round);
   $("who-sub").textContent = `${view.interviewer_title}, ${view.company} · ${mode}`;
+  if (coding) {
+    // The problem and the code editor live on the notepad page; make it the obvious next step.
+    $("notepad-link").textContent = "打開題目與程式區 ↗";
+    $("notepad-link").style.fontWeight = "600";
+    $("status").textContent = "Coding 面試：先打開「題目與程式區」放在旁邊，再按「開始面試」。請戴耳機。";
+  }
   $("nameplate").hidden = false;
   document.title = `面試中 · ${view.company}`;
+} else {
+  // No interview chosen yet (or the server is not running): there is nothing to start.
+  $("connect").disabled = true;
+  setStatus("還沒有選面試。請先回設定頁選一場面試，再按「前往面試」。", "error");
 }
 
 async function loadAvatar() {
-  if (!view || !view.avatar_url) {
-    $("placeholder").textContent = "沒有頭像檔。執行 python download_models.py avatar 下載後重新整理；現在仍可用純語音面試。";
+  if (!view) {
+    $("placeholder").textContent = "還沒有選面試。";
+    return;
+  }
+  if (!view.avatar_url) {
+    $("placeholder").textContent = "沒有頭像檔。執行 python scripts/download_models.py avatar 下載後重新整理；現在仍可用純語音面試。";
     return;
   }
   try {
@@ -208,7 +225,7 @@ const CHINESE_CHARS_PER_SECOND = 4.5;
 const CJK = "\\u3400-\\u9fff\\uf900-\\ufaff", CJK_PUNCT = "\\u3000-\\u303f\\uff00-\\uffef";
 // A unit is one Chinese character with any punctuation after it, or one run of other non-space text.
 const UNIT = new RegExp(`[${CJK}][${CJK_PUNCT}]*|[^\\s${CJK}]+`, "g");
-// Spaces only between English words and between English and Chinese, as in chinese.py's tidy_spaces.
+// Spaces only between English words and between English and Chinese, as in interviewer/speech/chinese.py's tidy_spaces.
 const CJK_SPACE = new RegExp(`(?<=[${CJK_PUNCT}]) +| +(?=[${CJK_PUNCT}])|(?<=[${CJK}]) +(?=[${CJK}])`, "g");
 const CAPTION_WIDTH = 200;  // about two lines, a Chinese character counting as two letters
 function units(text) { return text.match(UNIT) || []; }
@@ -285,7 +302,7 @@ function onServerMessage(raw) {
     case "bot-output": {
       // "new" marks a sentence the voice is about to speak; "completed" repeats it after synthesis.
       if (msg.data?.spoken_status !== "new") break;
-      const text = (msg.data.text || "").replace(/\[\[\s*END\s*\]\]/g, "").trim();
+      const text = (msg.data.text || "").replace(/\[\[\s*(END|NEXT)\s*\]\]/g, "").trim();
       if (text) botWords.push(...units(text));
       break;
     }
@@ -437,9 +454,13 @@ async function connect() {
         $("pause").disabled = false;
         $("mute").disabled = false;
         $("end").disabled = false;
-      } else if (s === "failed" || s === "disconnected" || s === "closed") {
-        const goodbye = /bye|take care|thank/i.test(botWords.join(" "));
-        finish(s === "failed" && !endRequested && !goodbye ? "連線中斷，可回設定頁接續這場面試。" : null);
+      } else if (s === "disconnected") {
+        // Often a short network hiccup that recovers by itself; give it a few seconds before calling it over.
+        setTimeout(() => {
+          if (pc && pc.connectionState === "disconnected") connectionEnded(pc.connectionState);
+        }, 5000);
+      } else if (s === "failed" || s === "closed") {
+        connectionEnded(s);
       }
     };
 
@@ -453,10 +474,25 @@ async function connect() {
     await pc.setRemoteDescription({ sdp: answer.sdp, type: answer.type });
   } catch (err) {
     console.error(err);
-    setStatus(`無法開始：${err.message}`, "error");
+    setStatus(`無法開始：${startError(err)}`, "error");
     cleanup();
     $("connect").disabled = false;
   }
+}
+
+function connectionEnded(state) {
+  const goodbye = /bye|take care|thank|再見|謝謝/i.test(botWords.join(" "));
+  finish(state !== "closed" && !endRequested && !goodbye ? "連線中斷了。回到設定頁可以接續這場面試。" : null);
+}
+
+function startError(err) {
+  if (!navigator.mediaDevices) {
+    return "這個網址不能使用麥克風。瀏覽器只允許 http://localhost 或 HTTPS 的網頁使用麥克風，請改用 http://localhost:7860/interview 開啟。";
+  }
+  if (err.name === "NotAllowedError") return "麥克風權限被拒絕。請在網址列左邊的權限設定允許麥克風，再按一次「開始面試」。";
+  if (err.name === "NotFoundError") return "找不到麥克風。請接上麥克風或耳機，再按一次「開始面試」。";
+  if (err.name === "NotReadableError") return "麥克風被其他程式占用。請關掉正在用麥克風的程式，再試一次。";
+  return err.message;
 }
 
 function iceGathered(peer) {
@@ -483,7 +519,20 @@ function finish(message) {
   $("speaking-dot").classList.remove("on");
   ["pause", "mute", "end"].forEach((id) => { $(id).disabled = true; });
   $("connect").hidden = true;
-  setStatus(message || "面試已結束。回饋報告約一分鐘內產生，可到設定頁查看。");
+  if (message) return setStatus(message);
+  setStatus("面試已結束。");
+  // The server writes a report only for a finished session with enough conversation; ask it what it is doing.
+  let tries = 0;
+  const check = () => fetch("/api/status").then((r) => r.json()).then((d) => {
+    if (d.generating && d.generating.length) {
+      setStatus("面試已結束。回饋報告產生中，約一分鐘後可到設定頁查看。");
+    } else if (++tries < 8) {
+      setTimeout(check, 2000);
+    } else {
+      setStatus("面試已結束。紀錄在設定頁；對話太短的話不會產生報告，中途斷掉的面試可以在那裡接續。");
+    }
+  }).catch(() => setStatus("面試已結束。可到設定頁查看紀錄。"));
+  setTimeout(check, 1000);
 }
 
 $("connect").addEventListener("click", connect);

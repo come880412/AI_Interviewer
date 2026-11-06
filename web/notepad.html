@@ -4,42 +4,74 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>共用筆記板</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%232f5bd3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 <style>
   main { max-width: 1000px; }
-  #pad { min-height: 65vh; }
+  main.coding { max-width: 1400px; }
+  #pad { min-height: 65vh; tab-size: 4; }
+  .workspace { display: grid; gap: 16px; }
+  main.coding .workspace { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: start; }
+  #problem { margin: 0; max-height: 80vh; overflow-y: auto; }
+  #problem h2:first-child { margin-top: 12px; }
+  #problem .meta { margin-top: 0; }
+  #problem pre { white-space: pre-wrap; }
+  .pad-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; justify-content: space-between; }
+  @media (max-width: 900px) {
+    main.coding .workspace { grid-template-columns: minmax(0, 1fr); }
+    #problem { max-height: none; }
+  }
 </style>
 </head>
 <body>
-<main>
+<main id="main">
   <header>
-    <h1>共用筆記板</h1>
-    <p class="lede">在這裡寫程式、虛擬碼或設計的架構，面試官會在你下一次開口回答時看到最新內容。跟面試頁並排開著用。</p>
+    <h1 id="heading">共用筆記板</h1>
+    <p class="lede" id="lede">在這裡寫程式、虛擬碼或設計的架構，面試官會在你下一次開口回答時看到最新內容。跟面試頁並排開著用。</p>
     <div class="nav"><a href="/">← 回到設定頁</a></div>
   </header>
-  <div class="card">
-    <textarea id="pad" class="code" spellcheck="false" aria-label="筆記內容" placeholder="例如：
+  <div class="workspace">
+    <article class="report" id="problem" hidden aria-live="polite"></article>
+    <div class="card">
+      <div class="pad-head" id="pad-head" hidden>
+        <strong id="pad-title"></strong>
+        <span class="meta" id="pad-lang"></span>
+      </div>
+      <textarea id="pad" class="code" spellcheck="false" aria-label="筆記內容" placeholder="例如：
 def associate(tracks, detections):
     cost = 1 - iou(tracks, detections)
     ..."></textarea>
-    <div class="actions"><span class="status" id="status">面試開始後，內容會自動傳給面試官。</span></div>
+      <div class="actions"><span class="status" id="status">面試開始後，內容會自動傳給面試官。</span></div>
+    </div>
   </div>
 </main>
 <script>
 (function () {
-  var pad = document.getElementById("pad");
-  var statusEl = document.getElementById("status");
+  var $ = function (id) { return document.getElementById(id); };
+  var pad = $("pad");
+  var statusEl = $("status");
   var timer = null;
   var lastSent = "";
-  try { pad.value = localStorage.getItem("notepad") || ""; } catch (e) {}
+  var lastEdit = 0;  // 0 until you type on this page, so notes left from an earlier session are not resent
+  // Coding interviews: the problem on screen, and the storage key for its code. Each problem of each
+  // session keeps its own code, so the same problem in a later session starts from the starter code.
+  var problem = null;
+  var storeKey = "notepad";
+
+  function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function save() { try { localStorage.setItem(storeKey, pad.value); } catch (e) {} }
+
+  pad.value = load(storeKey) || "";
 
   function send() {
     if (pad.value === lastSent) return;
     var text = pad.value;
+    var body = { text: text };
+    if (problem) body.problem = problem.id;
     fetch("/api/notepad", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text }),
+      body: JSON.stringify(body),
     }).then(function (r) {
       return r.json().then(function (j) {
         if (!r.ok) throw new Error(j.detail || r.statusText);
@@ -53,22 +85,97 @@ def associate(tracks, detections):
     });
   }
 
-  pad.addEventListener("input", function () {
-    try { localStorage.setItem("notepad", pad.value); } catch (e) {}
+  function edited() {
+    lastEdit = Date.now();
+    save();
     statusEl.textContent = "輸入中…";
     statusEl.className = "status";
     clearTimeout(timer);
     timer = setTimeout(send, 2500);
-  });
+  }
+
+  function insert(text) {
+    var s = pad.selectionStart;
+    pad.value = pad.value.slice(0, s) + text + pad.value.slice(pad.selectionEnd);
+    pad.selectionStart = pad.selectionEnd = s + text.length;
+    edited();
+  }
+
+  pad.addEventListener("input", edited);
   pad.addEventListener("keydown", function (e) {
-    if (e.key === "Tab") {
+    if (e.key === "Tab" && !e.shiftKey) {
       e.preventDefault();
-      var s = pad.selectionStart;
-      pad.value = pad.value.slice(0, s) + "    " + pad.value.slice(pad.selectionEnd);
-      pad.selectionStart = pad.selectionEnd = s + 4;
-      pad.dispatchEvent(new Event("input"));
+      insert("    ");
+    } else if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      // Keep the indentation, one level deeper after a line ending in ":" or "{".
+      e.preventDefault();
+      var line = pad.value.slice(0, pad.selectionStart).split("\n").pop();
+      var indent = line.match(/^\s*/)[0];
+      if (/[:{]\s*$/.test(line)) indent += "    ";
+      insert("\n" + indent);
     }
   });
+
+  function showProblem(view) {
+    // Polled every 2.5 s: re-rendering the same problem would drop a text selection and make screen readers repeat it.
+    if (problem && problem.id === view.id && problem.file === view.file) return;
+    $("main").classList.add("coding");
+    $("heading").textContent = "Coding 面試";
+    $("lede").textContent = "題目在左邊，程式寫在右邊，邊寫邊講你的想法。面試官會在你下一次開口時看到最新的程式碼；這裡不能執行程式，請用範例自己走一遍。";
+    // Header built from text; the statement itself is HTML sanitized or escaped by the server.
+    var head = document.createElement("div");
+    var h = document.createElement("h2");
+    h.textContent = view.number + ". " + view.title;
+    var meta = document.createElement("p");
+    meta.className = "meta";
+    if (view.statement === "interview") {
+      // Like a real interview: no tags, rating or link, and the details are for the candidate to ask about.
+      meta.textContent = "題目只寫了大概。輸入範圍、邊界情況、有沒有保證之類的細節，請直接問面試官，或說出你的假設請他確認。";
+    } else {
+      var bits = [view.difficulty.charAt(0).toUpperCase() + view.difficulty.slice(1)];
+      if (view.rating) bits.push("rating " + Math.round(view.rating));
+      if (view.tags.length) bits.push(view.tags.join(", "));
+      meta.textContent = bits.join(" · ") + " · ";
+      var link = document.createElement("a");
+      link.href = view.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "LeetCode #" + view.leetcode_number;
+      meta.append(link);
+    }
+    head.append(h, meta);
+    $("problem").innerHTML = view.html;
+    $("problem").prepend(head);
+    $("problem").hidden = false;
+    $("pad-head").hidden = false;
+    $("pad-title").textContent = "第 " + view.number + " / " + view.count + " 題：" + view.title;
+    $("pad-lang").textContent = view.language_name;
+    pad.setAttribute("aria-label", view.language_name + " 程式碼");
+    pad.placeholder = "";
+    // A new problem: keep the old one's code where it is and switch to this one's.
+    save();
+    clearTimeout(timer);
+    problem = { id: view.id, file: view.file };
+    storeKey = "notepad:" + view.file + ":" + view.id;
+    pad.value = load(storeKey) || view.starter;
+    lastSent = view.starter;  // the interviewer already knows the starter code; send only real edits
+    // Code kept from before a reconnect: the resumed session starts without it.
+    if (pad.value !== lastSent) send();
+    statusEl.textContent = view.number > 1 ? "已換到第 " + view.number + " 題。" : "題目已顯示，開始寫吧。";
+    statusEl.className = "status";
+  }
+
+  function poll() {
+    var json = function (r) { return r.json(); };
+    Promise.all([fetch("/api/coding").then(json), fetch("/api/status").then(json)]).then(function (res) {
+      var view = res[0];
+      if (view.active) showProblem(view);
+      else if (problem) statusEl.textContent = "面試已結束，程式碼仍保留在這裡。";
+      // Notes written before the interview started reach the interviewer as soon as it starts.
+      if (res[1].active && lastEdit && pad.value !== lastSent && Date.now() - lastEdit > 2500) send();
+    }).catch(function () {}).finally(function () { setTimeout(poll, 2500); });
+  }
+  poll();
 })();
 </script>
 </body>

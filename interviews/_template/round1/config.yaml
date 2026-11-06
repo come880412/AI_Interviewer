@@ -1,19 +1,35 @@
-# ===== 這一關的設定：把 round1 改成關卡名稱，例如 tech、hm =====
+# ===== This round's settings: rename round1 to the round, e.g. tech or hm =====
 interviewer_name: Alex
 interviewer_title: Engineering Manager
 round_name: technical screen
-duration_minutes: 45             # 面試時長（分鐘），影響時間提醒和斷線接續的計時
-difficulty: standard            # standard 或 tough
-# interview_language: zh-TW     # 中文面試；不寫就是英文。中文會改用 Whisper 和 Kokoro 中文聲音（voice 用 zm_010 這類）
+duration_minutes: 45             # length in minutes; drives the time checks and resuming after a dropped connection
+difficulty: standard            # standard or tough
+# interview_language: zh-TW     # English if left out. Also ja, es, fr, it, pt-BR, hi; each uses that language's
+#                               # Kokoro voices (zh-TW: zm_010..., ja: jm_kumo...; see docs/reference.md)
 
-# ===== 聲音（Kokoro 內建聲音）=====
-# 美式男聲: am_michael, am_adam, am_eric, am_liam, am_onyx, am_fenrir, am_puck, am_echo
-# 英式男聲: bm_george, bm_lewis, bm_daniel, bm_fable（英式請把 voice_language 改成 en-gb）
+# ===== Voice (Kokoro's built-in voices) =====
+# American male: am_michael, am_adam, am_eric, am_liam, am_onyx, am_fenrir, am_puck, am_echo
+# British male: bm_george, bm_lewis, bm_daniel, bm_fable (set voice_language to en-gb for these)
 voice: am_michael
 voice_language: en-us
 
-# ===== 複製聲音（Pocket TTS，CPU 執行）=====
-# 填了就改用這段參考音檔的聲音，Kokoro 的 voice 會被忽略。只能用本人同意使用的聲音。
+# ===== Voice cloning (Pocket TTS, runs on the CPU) =====
+# Set this to use the voice in a reference recording instead of Kokoro's voice.
+# Only clone the voice of someone who has agreed to it.
 # voice_clone: voice/reference.wav
-# 或用 Pocket TTS 的內建聲音（不用準備錄音）：stuart_bell、javert、michael、paul、charles…
+# Or one of Pocket TTS's built-in voices (no recording needed): stuart_bell, javert, michael, paul, charles, ...
 # pocket_voice: stuart_bell
+
+# ===== Video interviewer (the /interview page) =====
+# avatar: david                  # a GLB in web/avatars/: david (male look) or brunette (female look)
+# avatar_body: M                 # M or F, to match the avatar
+
+# ===== Coding interview defaults (optional): what the setup page preselects for this round =====
+# coding:
+#   language: python             # python or cpp
+#   difficulties: [medium, hard]
+#   tags: [graph, tree]
+#   minutes: 45                  # 15, 30, 45 or 60
+#
+# To change how the interviewer behaves for this round only, put your own interviewer.md, feedback.md or
+# coding_rubric.md in a prompts/ folder here (start from a copy of the shared one in prompts/).

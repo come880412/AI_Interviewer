@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="#畫面">畫面</a> &nbsp;·&nbsp;
-  <a href="#三種練習方式">三種練習方式</a> &nbsp;·&nbsp;
+  <a href="#四種練習方式">四種練習方式</a> &nbsp;·&nbsp;
   <a href="#面試結束之後">面試結束之後</a> &nbsp;·&nbsp;
   <a href="#面試官會做什麼">面試官會做什麼</a> &nbsp;·&nbsp;
   <a href="#運作方式">運作方式</a> &nbsp;·&nbsp;
@@ -47,7 +47,7 @@
 
 ---
 
-## 三種練習方式
+## 四種練習方式
 
 <table>
   <tr>
@@ -61,6 +61,8 @@
       針對一個主題練 10 到 30 分鐘，從基礎問到深入的追問。主題可以選上次報告建議加強的、評分標準裡的面向，或自己輸入。
       <h3>3. 教練模式</h3>
       每答完一題就停下來：先說哪裡答得好，再指出漏掉什麼，用你自己的經驗示範更好的講法，然後請你重答一次。
+      <h3>4. Coding 面試</h3>
+      題目即時從 LeetCode 抓，可以依難度（可複選）、題型標籤和 rating 範圍篩選，用 Python 或 C++ 作答。題目顯示在共用筆記板上，你在旁邊寫程式、邊寫邊講。預設用面試官的寫法，只寫大概，限制和邊界情況要自己問。面試官會先問你的解法和複雜度，卡住時依序給提示，寫完請你用範例走一遍，用特定輸入點出 bug，時間夠就出第二題。報告用 coding 的評分標準，附上參考解法。
       <br><br>
       每一場都可以暫停；斷線了，之後也能接著同一場繼續。
     </td>
@@ -132,7 +134,7 @@
 |---|---|
 | 語音流程 | [Pipecat](https://github.com/pipecat-ai/pipecat) 1.12，透過 WebRTC |
 | 判斷輪到誰說話 | Silero VAD + Smart Turn v3，本機執行 |
-| 語音辨識 | Whisper large-v3（faster-whisper）或 NVIDIA Parakeet TDT 0.6B v3，本機 GPU。可以用 `compare_stt.py` 拿你自己的聲音比較 |
+| 語音辨識 | Whisper large-v3（faster-whisper）或 NVIDIA Parakeet TDT 0.6B v3，本機 GPU。可以用 `scripts/compare_stt.py` 拿你自己的聲音比較 |
 | 面試官 | Claude，預設透過你的 Claude Code 登入，也可以用 Anthropic API key |
 | 聲音 | Kokoro（GPU）、Pocket TTS 內建或複製聲音（CPU）、中文用 Kokoro v1.1-zh |
 | 虛擬面試官 | [TalkingHead](https://github.com/met4citizen/TalkingHead) 加 [HeadAudio](https://github.com/met4citizen/HeadAudio) 嘴型同步，在瀏覽器裡執行 |
@@ -144,22 +146,22 @@
 **需要**
 
 - Linux，或 Windows 的 WSL2
-- NVIDIA GPU，6 GB 以上 VRAM，驅動支援 CUDA 12
-- Python 3.10 到 3.12
-- 已登入的 **Claude Code**（或 Anthropic API key）
+- NVIDIA GPU，6 GB 以上 VRAM，驅動支援 CUDA 12（也可以只用 CPU，會比較慢，見 [INSTALL.zh-TW.md](INSTALL.zh-TW.md#沒有-gpu-的跑法)）
+- Python 3.10 到 3.12，約 15 GB 硬碟空間
+- 安裝好並用 `claude` 登入過一次的 **[Claude Code](https://claude.com/claude-code)**（或 Anthropic API key）
 - 耳機，避免面試官聽到自己的聲音
 
 **接著**
 
 ```bash
-./setup_gpu.sh                  # 建 venv、安裝套件、換成 GPU 版 onnxruntime
+./scripts/setup_gpu.sh                  # 建 venv、安裝套件、換成 GPU 版 onnxruntime
 source .venv/bin/activate
-source cuda_env.sh              # 讓程式找得到 CUDA 函式庫，每開一個新終端機都要跑
-python download_models.py       # 下載模型（約 4 GB）並檢查 GPU
+source scripts/cuda_env.sh              # 讓程式找得到 CUDA 函式庫，每開一個新終端機都要跑
+python scripts/download_models.py       # 下載模型（約 4 GB）並檢查 GPU
 python bot.py                   # 然後打開 http://localhost:7860/
 ```
 
-選範例面試、選練習方式，按「前往面試」。完整步驟和疑難排解在 **[INSTALL.zh-TW.md](INSTALL.zh-TW.md)**，所有設定在 **[docs/reference.zh-TW.md](docs/reference.zh-TW.md)**。
+選範例面試、選練習方式，按「前往面試」。範例面試的回饋報告是英文；想要中文報告，把 `interviews/example/company.yaml` 的 `feedback_language` 改成 `Traditional Chinese (Taiwan)`。完整步驟和疑難排解在 **[INSTALL.zh-TW.md](INSTALL.zh-TW.md)**，所有設定在 **[docs/reference.zh-TW.md](docs/reference.zh-TW.md)**。
 
 要準備真正的面試，在設定頁用「新增公司或關卡」，或複製 [`interviews/_template/`](interviews/_template/)。你自己的公司資料夾、履歷、逐字稿和錄音都在 `.gitignore` 裡，只會留在你的電腦上。
 
@@ -168,17 +170,33 @@ python bot.py                   # 然後打開 http://localhost:7860/
 ## 隱私與費用
 
 - **會離開你電腦的東西**：只有送給 Claude 的文字，也就是面試設定檔和面試中的對話，以及寫回饋報告時的逐字稿。你的聲音和存下來的錄音都留在本機。
-- **費用**：預設的 Claude Code 模式用的是你的 Claude 方案，會算進方案的用量額度；改成 `LLM_BACKEND=api` 則依 Claude API 價格按 token 計費。其他部分都免費、在本機執行。
+- **費用**：預設的 Claude Code 模式用的是你的 Claude 方案，會算進方案的用量額度；改成 `LLM_BACKEND=api` 則依 Claude API 價格按 token 計費；`LLM_BACKEND=openai` 依該服務收費（本機模型免費）。其他部分都免費、在本機執行。
 
 ## 已知限制
 
-- 網頁介面只有繁體中文；面試本身可以是英文或中文。
+- 網頁介面只有繁體中文；面試本身可以是英文或中文（測得最多），也可以是日文、西班牙文、法文、義大利文、巴西葡萄牙文或印地文。
+- prompt 是針對 Claude 寫的。`LLM_BACKEND=openai` 也能接 OpenAI 或本機模型（Ollama、LM Studio），但其他模型遵守面試規則可能比較不可靠。
 - 在 WSL2（Ubuntu）加 NVIDIA GPU 上開發與測試，一般 Linux 應該一樣可用。不支援原生 Windows 和 macOS。
 - 中文聲音是大陸口音，英文術語念得比較不自然，這是目前本機輕量模型的限制。
 - 每輪時間是近似值，Whisper 也會濾掉部分「呃」「嗯」，所以贅字只能粗略判斷。
 - 複製聲音時，只能用你有權使用、本人同意的聲音。
 
 ---
+
+## 第三方模型與素材
+
+本專案自己的程式碼採 MIT 授權。下載的模型和素材不在 repo 裡，各自適用自己的授權條款：
+
+- 語音辨識：[Whisper](https://github.com/openai/whisper)（MIT，透過 faster-whisper），或 [NVIDIA Parakeet TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)（CC-BY-4.0）。
+- 聲音：[Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) 和 Kokoro v1.1-zh（Apache-2.0），中文和日文發音用 [misaki](https://github.com/hexgrad/misaki)（Apache-2.0）和 pyopenjtalk（MIT）；[Pocket TTS](https://huggingface.co/kyutai/pocket-tts)（需先在 Hugging Face 同意條款）。
+- 頭像：[TalkingHead](https://github.com/met4citizen/TalkingHead) 和 [HeadAudio](https://github.com/met4citizen/HeadAudio)（MIT）。頭像 `david.glb` 和 `brunette.glb` 由 Ready Player Me 製作；`david.glb` 僅供個人使用，`brunette.glb` 是 CC BY-NC 4.0（非商業用途）。
+- Coding 題目和 rating 來自 [LeetCode](https://leetcode.com/) 和 [zerotrac/leetcode_problem_rating](https://github.com/zerotrac/leetcode_problem_rating)，只為你自己的練習抓取，不會重新散布。
+
+**複製聲音：** 只能複製本人同意使用的聲音。
+
+## 參與開發
+
+歡迎開 issue 和 pull request。`python -m pytest` 不需要 GPU、網路或 Claude 就能跑完測試；修正時請一併加上測試。絕對不要 commit `transcripts/`、`profile/` 或你自己的面試資料夾裡的任何東西。
 
 ## 文件
 
@@ -189,24 +207,38 @@ python bot.py                   # 然後打開 http://localhost:7860/
 <summary><strong>程式架構</strong></summary>
 
 ```text
-bot.py                語音 pipeline 主程式：計時、結束流程、專項練習與教練模式、筆記板
-session_picker.py     網頁和它的 API
-claude_code_llm.py    透過 Claude Code CLI 呼叫面試官，CLI 當掉時自動恢復
-whisper_stt.py        Whisper 語音辨識：帶入對話上下文、過濾幻覺片段
-parakeet_stt.py       Parakeet 語音辨識：每段回答結束後整段重新辨識
-compare_stt.py        用你自己的錄音比較語音辨識模型
-chinese.py            中文文字處理：轉繁體、空格與標點、字數
-chinese_tts.py        中文面試官的聲音（Kokoro v1.1-zh）
-feedback.py           回饋報告和分數
-analysis.py           回答長度、停頓、語速
-history.py            跨場次的弱點與問過的題目、進度資料
-interview_config.py   載入面試資料夾、設定檢查、填入 prompt 模板
-setup_wizard.py       新增公司或關卡：草稿與建立
-resume_import.py      把上傳的履歷轉成 resume.md
-prompts/              面試官、回饋報告、履歷轉換、新增關卡的 prompt 模板
-interviews/           每家公司一個資料夾，每一關一個子資料夾
-web/                  設定頁、面試頁、報告頁、進度頁、筆記板
-tests/                自動化測試（不需要 GPU、網路或 Claude）
+bot.py                 即時語音面試，執行這個（python bot.py）
+interviewer/           程式本體（Python 套件）
+  server.py            網頁和它的 API
+  config.py            載入面試資料夾、設定檢查、填入 prompt 模板
+  settings.py          每個程式共用的 .env 載入；設定裡的相對路徑以專案資料夾為準
+  transcript.py        寫入與讀回逐字稿
+  feedback.py          回饋報告和分數（面試結束自動執行，或 python -m interviewer.feedback）
+  analysis.py          從每輪時間算出回答長度、停頓、語速
+  history.py           跨場次的弱點、問過的題目、進度資料
+  coding.py            Coding 面試：挑題、換題、面試官和報告的說明
+  leetcode.py          從 LeetCode 抓題目和 zerotrac 的 rating，快取在本機
+  claude_code.py       透過 Claude Code CLI 呼叫面試官，CLI 當掉時自動恢復
+  llm.py               報告、履歷轉換、草稿、題目改寫共用的一次性 Claude 呼叫
+  setup_wizard.py      新增公司或關卡：草稿與建立
+  resume_import.py     把上傳的履歷轉成 resume.md
+  speech/
+    whisper_stt.py     Whisper：帶入對話上下文、過濾幻覺片段、輸出繁體
+    parakeet_stt.py    Parakeet：每段回答結束後整段重新辨識
+    stt_common.py      兩種辨識共用：回答音訊、專有名詞修正、Parakeet 下載
+    chinese.py         中文文字處理：轉繁體、空格與標點、字數
+    chinese_tts.py     中文面試官的聲音（Kokoro v1.1-zh）
+scripts/
+  setup_gpu.sh         一次性安裝：venv、套件、GPU 版 onnxruntime
+  cuda_env.sh          讓 pip 裝的 CUDA 函式庫被找到（每個終端機 source 一次）
+  download_models.py   下載模型並檢查 GPU
+  compare_stt.py       用你自己的錄音比較語音辨識模型
+web/                   設定頁、面試頁、報告頁、進度頁、筆記板
+prompts/               prompt 模板：面試官、報告、Coding、履歷、新增關卡
+interviews/            每家公司一個資料夾、每一關一個子資料夾；_template/ 和 example/ 會進 git
+profile/               你的通用履歷（不進 git）
+transcripts/           逐字稿、報告、分數，依面試分資料夾（不進 git）
+tests/                 自動化測試（不需要 GPU、網路或 Claude）
 ```
 
 </details>

@@ -1,6 +1,6 @@
 import pytest
 
-from chinese import chinese_punctuation, has_chinese, spoken_units, tidy_spaces, to_simplified, to_traditional
+from interviewer.speech.chinese import chinese_punctuation, has_chinese, spoken_units, tidy_spaces, to_simplified, to_traditional
 
 
 def test_has_chinese():
@@ -14,6 +14,7 @@ def test_has_chinese():
     ("我用了 GRU", 4),  # three characters and one word
     ("誤差從 4.0 降到 0.15。", 7),
     ("it's a trade-off", 3),
+    ("ひらがなとカタカナ", 9),  # Japanese counts characters, kana included
     ("", 0),
 ])
 def test_spoken_units(text, expected):
@@ -25,6 +26,8 @@ def test_spoken_units(text, expected):
     ("好， 那我們 開始。 下一題", "好，那我們開始。下一題"),
     ("I used a GRU.", "I used a GRU."),  # English keeps its spaces
     ("QNN SDK 不支援", "QNN SDK 不支援"),  # and so does the gap between English and Chinese
+    ("これまでで 一番 難しかった プロジェクト は", "これまでで一番難しかったプロジェクトは"),  # Japanese kana too
+    ("INT8 に 量子化 しました", "INT8 に量子化しました"),
 ])
 def test_tidy_spaces(text, expected):
     assert tidy_spaces(text) == expected

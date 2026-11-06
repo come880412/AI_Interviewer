@@ -6,10 +6,11 @@ kokoro-onnx==0.6.1
 pyyaml==6.0.3
 # Reads uploaded PDF resumes on the setup page (Word files are read with the standard library).
 pypdf==5.4.0
-# NVIDIA Parakeet speech-to-text on onnxruntime (STT_BACKEND=parakeet, and compare_stt.py)
+# NVIDIA Parakeet speech-to-text on onnxruntime (STT_BACKEND=parakeet, and scripts/compare_stt.py)
 onnx-asr[hub]==0.12.0
-# Chinese interviews (interview_language: zh-TW): Kokoro's Chinese G2P, and Simplified -> Traditional conversion
-misaki[zh]==0.9.4
+# Chinese and Japanese interviews (interview_language: zh-TW, ja): Kokoro's Chinese and Japanese G2P, and
+# Simplified -> Traditional conversion
+misaki[zh,ja]==0.9.4
 opencc==1.4.2
 # Voice cloning (optional, see voice_clone in config.yaml). CPU torch is enough:
 #   pip install "pocket-tts>=2.1.0,<3" --extra-index-url https://download.pytorch.org/whl/cpu
